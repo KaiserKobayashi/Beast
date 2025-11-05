@@ -1,0 +1,35 @@
+﻿
+# Python caches and environments
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# virtualenvs
+venv/
+env/
+ENV/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+*.tmp
+*.temp
+*.bak*
+*~ 
+*.orig
+
+# node
+node_modules/
+
+# TTS / audio caches
+out/
+
