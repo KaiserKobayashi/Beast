@@ -1,35 +1,25 @@
-﻿
-# Python caches and environments
+﻿# Python
 __pycache__/
-*.py[cod]
-*.egg-info/
+*.pyc
+*.pyo
+
+# Archives, builds and installers
 dist/
 build/
+*.spec
+*.zip
+*.tar.gz
 
-# virtualenvs
-venv/
-env/
-ENV/
-
-# Editor / OS
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
-
-# Logs / temp
+# Logs and caches
+logs/
 *.log
-*.tmp
-*.temp
-*.bak*
-*~ 
-*.orig
+youtube_cookies.txt
 
-# node
-node_modules/
+# Visual Studio / Windows
+.vscode/
+Thumbs.db
+desktop.ini
 
-# TTS / audio caches
-out/
-
+# Backup files
+backup_*.zip
+repo_root_script_backup_*

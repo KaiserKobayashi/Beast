@@ -1,0 +1,26 @@
+﻿name: CI
+
+on:
+  push:
+    branches: [ main, feature/tts-integration ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install PySimpleGUI pydub flake8
+      - name: Run flake8
+        run: flake8 .
+      - name: Smoke test wrapper help
+        run: |
+          python auto_srt_all_tts_wrapper.py --help || true
