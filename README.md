@@ -1,6 +1,6 @@
 # Beast
 
-Beast is a toolkit and GUI for downloading, generating subtitles, and producing TTS audio for videos. This repository includes CLI helpers (tts_helpers.py, tts_run.py, playlist_helpers.py, auto_srt_all_tts_wrapper.py) and a new lightweight PySimpleGUI-based desktop GUI to run the TTS and playlist creation workflows.
+Beast is still a work in progress, also a massive pain in my a**!  But there's a lot of potential that none of my friends can see   I hesitate to explain it what it (hopefully) can do since that's seems to cause spontaneous narcolepsy. Its basically a toolkit and GUI with a four basic functions, downloading URLs, embedding subtitles in movies, and producing TTS audio, and translation.  as functions they're pretty standard, so I've working on interesting ways of combining their talents. I will most likely use this repository to avoid deleting all my work for the 3rd time :) (thanks repository!)
 
 ## Quick start (GUI)
 
