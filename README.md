@@ -1,6 +1,6 @@
 # Beast
 
-Beast is still a work in progress, also a massive pain in my a**!  But there's a lot of potential that none of my friends can see   I hesitate to explain it what it (hopefully) can do since that's seems to cause spontaneous narcolepsy. Its basically a toolkit and GUI with four basic functions: downloading URLs, embedding subtitles in movies, producing TTS audio, and translation. As functions they're pretty standard, so I've been working on interesting ways of combining their talents. I will most likely use this repository to avoid deleting all my work for the 3rd time :) (thanks repository!)
+Beast is still a work in progress, also a massive pain in my a**!  But there's a lot of potential that none of my friends can see   I hesitate to explain what it (hopefully) can do since that seems to cause spontaneous narcolepsy. It's basically a toolkit and GUI with four basic functions: downloading URLs, embedding subtitles in movies, producing TTS audio, and translation. As functions they're pretty standard, so I've been working on interesting ways of combining their talents. I will most likely use this repository to avoid deleting all my work for the 3rd time :) (thanks repository!)
 
 ## Quick start (GUI)
 

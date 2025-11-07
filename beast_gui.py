@@ -130,6 +130,7 @@ def main():
     worker = None
     stop_event = threading.Event()
     current_log = None
+    active_process = None  # Track which process is running: 'tts' or 'download'
 
     script_path = find_script()
     download_script = os.path.join(os.getcwd(), DOWNLOAD_SCRIPT)
@@ -187,6 +188,7 @@ def main():
             window['-OPEN-'].update(disabled=True)
             window['-OPENLOG-'].update(disabled=True)
             stop_event.clear()
+            active_process = 'tts'
             worker = threading.Thread(
                 target=run_process,
                 args=(
@@ -254,6 +256,7 @@ def main():
             window['-DOWNLOAD-'].update(disabled=True)
             window['-STOP-DL-'].update(disabled=False)
             stop_event.clear()
+            active_process = 'download'
             worker = threading.Thread(
                 target=run_process,
                 args=(
@@ -272,8 +275,8 @@ def main():
             window['-STOP-DL-'].update(disabled=True)
         if event == '-LOG-':
             txt = values[event]
-            # Update both outputs depending on which is active
-            if window['-TTS-OUTPUT-'].get() == '' and window['-DL-OUTPUT-'].get() != '':
+            # Route logs based on active process
+            if active_process == 'download':
                 window['-DL-OUTPUT-'].update(window['-DL-OUTPUT-'].get() + txt)
             else:
                 window['-TTS-OUTPUT-'].update(
@@ -281,12 +284,16 @@ def main():
             if "PROGRESS:" in txt:
                 try:
                     p = int(txt.split("PROGRESS:")[-1].strip().split()[0])
-                    window['-PROG-'].update(min(max(p, 0), 100))
-                    window['-DL-PROG-'].update(min(max(p, 0), 100))
+                    # Update only the relevant progress bar
+                    if active_process == 'download':
+                        window['-DL-PROG-'].update(min(max(p, 0), 100))
+                    else:
+                        window['-PROG-'].update(min(max(p, 0), 100))
                 except Exception:
                     pass
         if event == '-DONE-':
             rc = values[event]
+            active_process = None  # Reset active process
             window['-RUN-'].update(disabled=False)
             window['-STOP-'].update(disabled=True)
             window['-DOWNLOAD-'].update(disabled=False)

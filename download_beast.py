@@ -97,7 +97,7 @@ def download_video(
         ydl_opts['subtitleslangs'] = ['all']
         if embed_subs:
             ydl_opts['postprocessors'] = ydl_opts.get(
-                'postprocessors', []) + [{'key': 'FFmpegEmbedSubtitle', }]
+                'postprocessors', []) + [{'key': 'FFmpegEmbedSubtitle'}]
 
     if cookies_file and os.path.exists(cookies_file):
         ydl_opts['cookiefile'] = cookies_file
@@ -151,11 +151,8 @@ def download_playlist(
 
     ydl_opts = {
         'format': format_spec,
-        'outtmpl': str(
-            output_dir_path /
-            '%(playlist_index)s-%(title)s.%(ext)s'),
-        'progress_hooks': [
-            DownloadProgress(verbose)],
+        'outtmpl': str(output_dir_path / '%(playlist_index)s-%(title)s.%(ext)s'),
+        'progress_hooks': [DownloadProgress(verbose)],
         'quiet': not verbose,
         'no_warnings': not verbose,
         'noplaylist': False,
