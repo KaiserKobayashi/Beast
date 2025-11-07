@@ -22,7 +22,20 @@ default_config = {
     "last_output": "",
     "last_voice": "default",
     "last_format": "mp3",
-    "last_rate": 1.0
+    "last_rate": 1.0,
+    "current_profile": "User 1",
+    "profiles": {
+        "User 1": {
+            "language": "en-US",
+            "gender": "female",
+            "voice_index": 0
+        },
+        "User 2": {
+            "language": "en-US",
+            "gender": "male",
+            "voice_index": 0
+        }
+    }
 }
 
 def load_config():
