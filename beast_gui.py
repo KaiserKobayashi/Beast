@@ -16,6 +16,7 @@ import json
 from datetime import datetime
 import PySimpleGUI as sg
 from beast_config import load_config, save_config, default_config
+from voice_config import get_available_languages, get_language_display_name, get_voice
 
 SCRIPT = "auto_srt_all_tts_wrapper.py"
 
@@ -75,9 +76,33 @@ def safe_float(v, default):
 def main():
     cfg = load_config()
 
+    # Get available languages and format them for display
+    available_langs = get_available_languages()
+    lang_display_list = [f"{lang} - {get_language_display_name(lang)}" for lang in available_langs]
+    
+    # Get current profile settings
+    current_profile = cfg.get("current_profile", "User 1")
+    profiles = cfg.get("profiles", default_config["profiles"])
+    profile_list = list(profiles.keys())
+    profile_data = profiles.get(current_profile, default_config["profiles"]["User 1"])
+    
+    current_language = profile_data.get("language", "en-US")
+    current_gender = profile_data.get("gender", "female")
+    voice_index = profile_data.get("voice_index", 0)
+    
+    # Find the display string for current language
+    current_lang_display = f"{current_language} - {get_language_display_name(current_language)}"
+    
     sg.theme(cfg.get("theme", "SystemDefault"))
     layout = [
         [sg.Text('Beast TTS / auto-SRT GUI', font=('Segoe UI', 14))],
+        [sg.HorizontalSeparator()],
+        [sg.Text('User Profile', font=('Segoe UI', 11, 'bold'))],
+        [sg.Text('Profile'), sg.Combo(values=profile_list, default_value=current_profile, key='-PROFILE-', enable_events=True, size=(15, 1)),
+         sg.Text('Language'), sg.Combo(values=lang_display_list, default_value=current_lang_display, key='-LANGUAGE-', enable_events=True, size=(30, 1)),
+         sg.Text('Gender'), sg.Combo(values=["female", "male"], default_value=current_gender, key='-GENDER-', enable_events=True, size=(10, 1))],
+        [sg.HorizontalSeparator()],
+        [sg.Text('Input/Output Settings', font=('Segoe UI', 11, 'bold'))],
         [sg.Text('Input file or folder'), sg.Input(default_text=cfg.get("last_input",""), key='-INPUT-'), sg.FolderBrowse(), sg.FileBrowse(file_types=(("SRT/Video","*.srt;*.mp4;*.mkv;*.mov"),))],
         [sg.Text('Output folder'), sg.Input(default_text=cfg.get("last_output",""), key='-OUTPUT-'), sg.FolderBrowse()],
         [sg.Text('Voice'), sg.Combo(values=cfg.get("voices", ["default"]), default_value=cfg.get("last_voice","default"), key='-VOICE-'),
@@ -106,6 +131,52 @@ def main():
                 stop_event.set()
                 worker.join(timeout=2)
             break
+        
+        if event == '-PROFILE-':
+            # Profile changed - update language and gender
+            selected_profile = values['-PROFILE-']
+            if selected_profile in cfg.get("profiles", {}):
+                profile_data = cfg["profiles"][selected_profile]
+                new_lang = profile_data.get("language", "en-US")
+                new_gender = profile_data.get("gender", "female")
+                new_lang_display = f"{new_lang} - {get_language_display_name(new_lang)}"
+                window['-LANGUAGE-'].update(value=new_lang_display)
+                window['-GENDER-'].update(value=new_gender)
+                cfg["current_profile"] = selected_profile
+                save_config(cfg)
+        
+        if event == '-LANGUAGE-':
+            # Language changed - update profile
+            lang_display = values['-LANGUAGE-']
+            if lang_display and ' - ' in lang_display:
+                lang_code = lang_display.split(' - ')[0]
+                current_profile = cfg.get("current_profile", "User 1")
+                if "profiles" not in cfg:
+                    cfg["profiles"] = default_config["profiles"].copy()
+                if current_profile not in cfg["profiles"]:
+                    cfg["profiles"][current_profile] = {"language": "en-US", "gender": "female", "voice_index": 0}
+                cfg["profiles"][current_profile]["language"] = lang_code
+                # Update the voice combo to show the selected voice
+                gender = cfg["profiles"][current_profile].get("gender", "female")
+                voice_name = get_voice(lang_code, gender, 0)
+                window['-VOICE-'].update(value=voice_name)
+                save_config(cfg)
+        
+        if event == '-GENDER-':
+            # Gender changed - update profile
+            new_gender = values['-GENDER-']
+            current_profile = cfg.get("current_profile", "User 1")
+            if "profiles" not in cfg:
+                cfg["profiles"] = default_config["profiles"].copy()
+            if current_profile not in cfg["profiles"]:
+                cfg["profiles"][current_profile] = {"language": "en-US", "gender": "female", "voice_index": 0}
+            cfg["profiles"][current_profile]["gender"] = new_gender
+            # Update the voice combo to show the selected voice
+            lang_code = cfg["profiles"][current_profile].get("language", "en-US")
+            voice_name = get_voice(lang_code, new_gender, 0)
+            window['-VOICE-'].update(value=voice_name)
+            save_config(cfg)
+        
         if event == '-RUN-':
             input_path = values['-INPUT-'] or ''
             output_path = values['-OUTPUT-'] or ''
@@ -113,6 +184,16 @@ def main():
             voice = values['-VOICE-'] or ''
             fmt = values['-FMT-'] or 'mp3'
             rate = safe_float(values['-RATE-'], 1.0)
+            
+            # Get voice from profile if not explicitly set
+            if not voice or voice == "default":
+                current_profile = cfg.get("current_profile", "User 1")
+                profile_data = cfg.get("profiles", {}).get(current_profile, {})
+                lang_code = profile_data.get("language", "en-US")
+                gender = profile_data.get("gender", "female")
+                voice_index = profile_data.get("voice_index", 0)
+                voice = get_voice(lang_code, gender, voice_index)
+            
             if not input_path:
                 sg.popup_ok('Please select an input file or folder first.')
                 continue
