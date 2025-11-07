@@ -13,13 +13,28 @@ This installs:
 - edge-tts (for voice synthesis)
 - pydub (for audio processing)
 
-### 2. Run the GUI (30 seconds)
+### 2. Test Connection (Optional but Recommended - 30 seconds)
+
+**If you're behind a corporate firewall or experiencing connection issues:**
+
+```bash
+python network_utils.py
+```
+
+This will test if you can reach Microsoft Azure Edge TTS service.
+
+- ✅ **Success**: You're ready to go!
+- ❌ **Failed**: See [FIREWALL_TROUBLESHOOTING.md](FIREWALL_TROUBLESHOOTING.md) for solutions
+
+Or use the GUI's built-in test: Run the GUI and click **"Test Connection"** button.
+
+### 3. Run the GUI (30 seconds)
 
 ```bash
 python beast_gui.py
 ```
 
-### 3. Configure Your Profile (1 minute)
+### 4. Configure Your Profile (1 minute)
 
 When the GUI opens, you'll see:
 
@@ -41,7 +56,7 @@ When the GUI opens, you'll see:
 2. User 2 selects their profile → Settings load automatically
 3. No need to reconfigure each time!
 
-### 4. Process Your Video (30 seconds)
+### 5. Process Your Video (30 seconds)
 
 1. Click **"Browse"** next to "Input file or folder"
 2. Select your video or SRT file
@@ -173,8 +188,21 @@ Select a profile and click **"Remove Profile"** to delete it.
 ### Problem: "edge-tts not installed"
 **Solution**: Run `pip install edge-tts`
 
+### Problem: Connection timeout or firewall errors
+**Solution**: 
+1. Click **"Test Connection"** button in GUI
+2. Run `python network_utils.py` for detailed diagnostics
+3. See **[FIREWALL_TROUBLESHOOTING.md](FIREWALL_TROUBLESHOOTING.md)** for complete guide
+4. Common fixes:
+   - Allow `api.msedgeservices.com` through firewall
+   - Configure proxy settings if behind corporate firewall
+   - Contact IT department for firewall exception
+
 ### Problem: Voice not working
-**Solution**: Check your internet connection (edge-tts requires internet)
+**Solution**: 
+1. Test connection first (see above)
+2. Check your internet connection (edge-tts requires internet)
+3. Verify firewall allows Microsoft Azure services
 
 ### Problem: Profile not saving
 **Solution**: Check permissions on config directory:

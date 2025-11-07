@@ -28,12 +28,44 @@ def _text_hash(text: str) -> str:
 async def _synthesize_edge(text: str, out_path: Path, voice: str = "en-US-AriaNeural", rate: str = "+0%"):
     if edge_tts is None:
         raise RuntimeError("edge-tts not installed. pip install edge-tts")
-    communicate = edge_tts.Communicate(text, voice=voice, rate=rate)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("wb") as f:
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                f.write(chunk["data"])
+    
+    try:
+        communicate = edge_tts.Communicate(text, voice=voice, rate=rate)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with out_path.open("wb") as f:
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    f.write(chunk["data"])
+    except Exception as e:
+        error_msg = str(e)
+        if "DNS" in error_msg or "getaddrinfo" in error_msg or "No address" in error_msg:
+            raise RuntimeError(
+                "Network error: Cannot reach Microsoft Edge TTS service.\n"
+                "DNS resolution failed - the service may be blocked by firewall.\n\n"
+                "Solutions:\n"
+                "  1. Check your internet connection\n"
+                "  2. Verify firewall allows access to api.msedgeservices.com\n"
+                "  3. Run: python network_utils.py (for detailed diagnosis)\n"
+                "  4. See: FIREWALL_TROUBLESHOOTING.md for help\n\n"
+                f"Original error: {error_msg}"
+            ) from e
+        elif "Connection" in error_msg or "timeout" in error_msg.lower():
+            raise RuntimeError(
+                "Network error: Cannot connect to Microsoft Edge TTS service.\n"
+                "Connection timeout or refused - the service may be blocked by firewall.\n\n"
+                "Solutions:\n"
+                "  1. Check if you're behind a corporate firewall\n"
+                "  2. Verify proxy settings are configured\n"
+                "  3. Run: python network_utils.py (for detailed diagnosis)\n"
+                "  4. See: FIREWALL_TROUBLESHOOTING.md for help\n\n"
+                f"Original error: {error_msg}"
+            ) from e
+        else:
+            raise RuntimeError(
+                f"Edge TTS error: {error_msg}\n\n"
+                "For network troubleshooting, run: python network_utils.py\n"
+                "For detailed help, see: FIREWALL_TROUBLESHOOTING.md"
+            ) from e
 
 def synthesize_text(text: str, out_path: Path, engine: str = "edge", voice: str = "en-US-AriaNeural", rate: str = "+0%"):
     out_path.parent.mkdir(parents=True, exist_ok=True)

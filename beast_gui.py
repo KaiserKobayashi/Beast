@@ -18,6 +18,13 @@ import PySimpleGUI as sg
 from beast_config import load_config, save_config, default_config
 from voice_config import get_available_languages, get_language_display_name, get_voice
 
+# Import network utilities for connectivity testing
+try:
+    from network_utils import test_edge_tts_connection
+    NETWORK_UTILS_AVAILABLE = True
+except ImportError:
+    NETWORK_UTILS_AVAILABLE = False
+
 SCRIPT = "auto_srt_all_tts_wrapper.py"
 
 LOGS_DIR = os.path.join(os.getcwd(), "logs")
@@ -100,7 +107,8 @@ def main():
         [sg.Text('User Profile', font=('Segoe UI', 11, 'bold'))],
         [sg.Text('Profile'), sg.Combo(values=profile_list, default_value=current_profile, key='-PROFILE-', enable_events=True, size=(15, 1)),
          sg.Button('Add Profile', key='-ADD_PROFILE-', size=(10, 1)),
-         sg.Button('Remove Profile', key='-REMOVE_PROFILE-', size=(12, 1))],
+         sg.Button('Remove Profile', key='-REMOVE_PROFILE-', size=(12, 1)),
+         sg.Button('Test Connection', key='-TEST_CONN-', size=(14, 1))],
         [sg.Text('Language'), sg.Combo(values=lang_display_list, default_value=current_lang_display, key='-LANGUAGE-', enable_events=True, size=(30, 1)),
          sg.Text('Gender'), sg.Combo(values=["female", "male"], default_value=current_gender, key='-GENDER-', enable_events=True, size=(10, 1))],
         [sg.HorizontalSeparator()],
@@ -199,6 +207,57 @@ def main():
                         window['-GENDER-'].update(value=new_gender)
                     save_config(cfg)
                     sg.popup_ok(f'Profile "{current_profile}" removed.')
+        
+        if event == '-TEST_CONN-':
+            # Test edge-tts connectivity
+            if not NETWORK_UTILS_AVAILABLE:
+                sg.popup_error(
+                    'Network utilities not available.\n\n'
+                    'Make sure network_utils.py is in the same directory as this script.',
+                    title='Network Test Unavailable'
+                )
+            else:
+                # Show testing message
+                window['-OUTPUT-'].update('Testing connection to edge-tts service...\n')
+                window.refresh()
+                
+                try:
+                    results = test_edge_tts_connection()
+                    
+                    # Build message
+                    msg = "Connection Test Results\n" + "="*50 + "\n\n"
+                    msg += f"Internet Connected: {'✓ Yes' if results['internet_connected'] else '✗ No'}\n"
+                    msg += f"Edge-TTS Accessible: {'✓ Yes' if results['edge_tts_accessible'] else '✗ No'}\n\n"
+                    
+                    if results['error_message']:
+                        msg += f"Error: {results['error_message']}\n\n"
+                    
+                    if results['recommendations']:
+                        msg += "Recommendations:\n"
+                        for rec in results['recommendations']:
+                            msg += f"  • {rec}\n"
+                    
+                    window['-OUTPUT-'].update(msg)
+                    
+                    if results['edge_tts_accessible']:
+                        sg.popup_ok(
+                            '✓ Connection Successful!\n\n'
+                            'Edge-TTS service is accessible.\n'
+                            'You can proceed with TTS generation.',
+                            title='Connection Test - Success'
+                        )
+                    else:
+                        sg.popup_error(
+                            '✗ Connection Failed\n\n'
+                            f'{results["error_message"]}\n\n'
+                            'See the output window for recommendations.\n'
+                            'For detailed help, see FIREWALL_TROUBLESHOOTING.md',
+                            title='Connection Test - Failed'
+                        )
+                except Exception as e:
+                    error_msg = f"Test failed with error: {str(e)}"
+                    window['-OUTPUT-'].update(error_msg)
+                    sg.popup_error(error_msg, title='Connection Test Error')
         
         if event == '-LANGUAGE-':
             # Language changed - update profile
