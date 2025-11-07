@@ -34,7 +34,7 @@ VOICE_LIBRARY = {
         "female": ["en-IN-NeerjaNeural"]
     },
     "es-ES": {
-        "male": ["es-ES-AlvaroNeural", "es-ES-ElviraNeural"],
+        "male": ["es-ES-AlvaroNeural"],
         "female": ["es-ES-ElviraNeural", "es-ES-AbrilNeural"]
     },
     "es-MX": {
