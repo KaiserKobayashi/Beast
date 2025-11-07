@@ -1,6 +1,6 @@
 # Beast
 
-Beast is still a work in progress, also a massive pain in my a**!  But there's a lot of potential that none of my friends can see   I hesitate to explain it what it (hopefully) can do since that's seems to cause spontaneous narcolepsy. Its basically a toolkit and GUI with a four basic functions, downloading URLs, embedding subtitles in movies, and producing TTS audio, and translation.  as functions they're pretty standard, so I've working on interesting ways of combining their talents. I will most likely use this repository to avoid deleting all my work for the 3rd time :) (thanks repository!)
+Beast is still a work in progress, also a massive pain in my a**!  But there's a lot of potential that none of my friends can see   I hesitate to explain what it (hopefully) can do since that seems to cause spontaneous narcolepsy. It's basically a toolkit and GUI with four basic functions: downloading URLs, embedding subtitles in movies, producing TTS audio, and translation. As functions they're pretty standard, so I've been working on interesting ways of combining their talents. I will most likely use this repository to avoid deleting all my work for the 3rd time :) (thanks repository!)
 
 ## Quick start (GUI)
 
@@ -17,9 +17,33 @@ python -m pip install -r requirements.txt
 python beast_gui.py
 ```
 
-Use the GUI to pick an input video folder or SRT files and run the TTS/auto-SRT wrapper. The GUI will run the existing scripts and display live logs.
+Use the GUI to:
+- **Download Tab**: Download videos from URLs (YouTube, etc.) with options for audio extraction, subtitles, and playlists
+- **TTS/Auto-SRT Tab**: Pick an input video folder or SRT files and run the TTS/auto-SRT wrapper
+
+The GUI will run the existing scripts and display live logs.
 
 ## Quick start (CLI)
+
+### Download videos
+
+Download videos from URLs:
+
+```bash
+# Download a video
+python download_beast.py https://www.youtube.com/watch?v=VIDEO_ID
+
+# Extract audio only
+python download_beast.py https://example.com/video --audio-only --audio-format mp3
+
+# Download with subtitles
+python download_beast.py https://example.com/video --subtitles --embed-subs
+
+# Download playlist
+python download_beast.py https://www.youtube.com/playlist?list=... --playlist --max 5
+```
+
+### TTS and Auto-SRT
 
 You can also run the existing scripts directly:
 
@@ -31,11 +55,13 @@ Refer to each script for available flags and options.
 
 ## Project layout
 
-- tts_helpers.py — low-level TTS helpers
-- tts_run.py — CLI entrypoint for TTS operations
-- playlist_helpers.py — helpers to build HTML playlists
-- auto_srt_all_tts_wrapper.py — wrapper that runs auto-SRT and TTS end-to-end
-- beast_gui.py — new PySimpleGUI-based GUI (this file)
+- **download_beast.py** — CLI for downloading videos from URLs using yt-dlp
+- **beast_gui.py** — PySimpleGUI-based GUI with tabs for Download and TTS/Auto-SRT
+- **beast_config.py** — Configuration management for GUI settings
+- **tts_helpers.py** — low-level TTS helpers
+- **tts_run.py** — CLI entrypoint for TTS operations
+- **playlist_helpers.py** — helpers to build HTML playlists
+- **auto_srt_all_tts_wrapper.py** — wrapper that runs auto-SRT and TTS end-to-end
 
 ## Contributing
 
