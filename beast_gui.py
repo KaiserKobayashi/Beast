@@ -99,7 +99,9 @@ def main():
         [sg.HorizontalSeparator()],
         [sg.Text('User Profile', font=('Segoe UI', 11, 'bold'))],
         [sg.Text('Profile'), sg.Combo(values=profile_list, default_value=current_profile, key='-PROFILE-', enable_events=True, size=(15, 1)),
-         sg.Text('Language'), sg.Combo(values=lang_display_list, default_value=current_lang_display, key='-LANGUAGE-', enable_events=True, size=(30, 1)),
+         sg.Button('Add Profile', key='-ADD_PROFILE-', size=(10, 1)),
+         sg.Button('Remove Profile', key='-REMOVE_PROFILE-', size=(12, 1))],
+        [sg.Text('Language'), sg.Combo(values=lang_display_list, default_value=current_lang_display, key='-LANGUAGE-', enable_events=True, size=(30, 1)),
          sg.Text('Gender'), sg.Combo(values=["female", "male"], default_value=current_gender, key='-GENDER-', enable_events=True, size=(10, 1))],
         [sg.HorizontalSeparator()],
         [sg.Text('Input/Output Settings', font=('Segoe UI', 11, 'bold'))],
@@ -144,6 +146,59 @@ def main():
                 window['-GENDER-'].update(value=new_gender)
                 cfg["current_profile"] = selected_profile
                 save_config(cfg)
+        
+        if event == '-ADD_PROFILE-':
+            # Add a new profile
+            profile_name = sg.popup_get_text('Enter a name for the new profile:', 'Add Profile')
+            if profile_name and profile_name.strip():
+                profile_name = profile_name.strip()
+                if "profiles" not in cfg:
+                    cfg["profiles"] = {}
+                if profile_name in cfg["profiles"]:
+                    sg.popup_error(f'Profile "{profile_name}" already exists.')
+                else:
+                    # Create new profile with default settings
+                    cfg["profiles"][profile_name] = {
+                        "language": "en-US",
+                        "gender": "female",
+                        "voice_index": 0
+                    }
+                    cfg["current_profile"] = profile_name
+                    save_config(cfg)
+                    # Update UI
+                    profile_list = list(cfg["profiles"].keys())
+                    window['-PROFILE-'].update(values=profile_list, value=profile_name)
+                    window['-LANGUAGE-'].update(value="en-US - English (US)")
+                    window['-GENDER-'].update(value="female")
+                    sg.popup_ok(f'Profile "{profile_name}" created successfully.')
+        
+        if event == '-REMOVE_PROFILE-':
+            # Remove the current profile
+            current_profile = cfg.get("current_profile", "User 1")
+            profiles = cfg.get("profiles", {})
+            
+            if len(profiles) <= 1:
+                sg.popup_error('Cannot remove the last profile. At least one profile must exist.')
+            elif current_profile not in profiles:
+                sg.popup_error(f'Profile "{current_profile}" not found.')
+            else:
+                confirm = sg.popup_yes_no(f'Are you sure you want to remove profile "{current_profile}"?', 'Confirm Removal')
+                if confirm == 'Yes':
+                    del cfg["profiles"][current_profile]
+                    # Switch to another profile
+                    remaining_profiles = list(cfg["profiles"].keys())
+                    if remaining_profiles:
+                        new_profile = remaining_profiles[0]
+                        cfg["current_profile"] = new_profile
+                        profile_data = cfg["profiles"][new_profile]
+                        new_lang = profile_data.get("language", "en-US")
+                        new_gender = profile_data.get("gender", "female")
+                        new_lang_display = f"{new_lang} - {get_language_display_name(new_lang)}"
+                        window['-PROFILE-'].update(values=remaining_profiles, value=new_profile)
+                        window['-LANGUAGE-'].update(value=new_lang_display)
+                        window['-GENDER-'].update(value=new_gender)
+                    save_config(cfg)
+                    sg.popup_ok(f'Profile "{current_profile}" removed.')
         
         if event == '-LANGUAGE-':
             # Language changed - update profile

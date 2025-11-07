@@ -2,6 +2,15 @@
 
 Beast is still a work in progress, also a massive pain in my a**!  But there's a lot of potential that none of my friends can see   I hesitate to explain it what it (hopefully) can do since that's seems to cause spontaneous narcolepsy. Its basically a toolkit and GUI with a four basic functions, downloading URLs, embedding subtitles in movies, and producing TTS audio, and translation.  as functions they're pretty standard, so I've working on interesting ways of combining their talents. I will most likely use this repository to avoid deleting all my work for the 3rd time :) (thanks repository!)
 
+## New Features
+
+### Voice Configuration & Multi-User Support
+- **36+ Languages** with authentic regional accents (English, Spanish, French, German, Japanese, Korean, Chinese, Arabic, and many more)
+- **Male and Female voices** for each language with appropriate accents
+- **Multi-user profiles** - Two or more people can use the app with their own settings
+- **Easy switching** between profiles, languages, and genders
+- See [VOICE_CONFIG_GUIDE.md](VOICE_CONFIG_GUIDE.md) for detailed documentation
+
 ## Quick start (GUI)
 
 1. Ensure you have Python 3.8+ installed.
