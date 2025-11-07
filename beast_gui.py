@@ -102,13 +102,12 @@ def main():
     
     sg.theme(cfg.get("theme", "SystemDefault"))
     layout = [
-        [sg.Text('Beast TTS / auto-SRT GUI', font=('Segoe UI', 14))],
+        [sg.Text('Beast TTS / auto-SRT GUI', font=('Segoe UI', 14)), sg.Push(), sg.Button('Test Connection', key='-TEST_CONN-', size=(14, 1))],
         [sg.HorizontalSeparator()],
         [sg.Text('User Profile', font=('Segoe UI', 11, 'bold'))],
         [sg.Text('Profile'), sg.Combo(values=profile_list, default_value=current_profile, key='-PROFILE-', enable_events=True, size=(15, 1)),
          sg.Button('Add Profile', key='-ADD_PROFILE-', size=(10, 1)),
-         sg.Button('Remove Profile', key='-REMOVE_PROFILE-', size=(12, 1)),
-         sg.Button('Test Connection', key='-TEST_CONN-', size=(14, 1))],
+         sg.Button('Remove Profile', key='-REMOVE_PROFILE-', size=(12, 1))],
         [sg.Text('Language'), sg.Combo(values=lang_display_list, default_value=current_lang_display, key='-LANGUAGE-', enable_events=True, size=(30, 1)),
          sg.Text('Gender'), sg.Combo(values=["female", "male"], default_value=current_gender, key='-GENDER-', enable_events=True, size=(10, 1))],
         [sg.HorizontalSeparator()],

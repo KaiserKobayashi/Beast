@@ -37,8 +37,10 @@ async def _synthesize_edge(text: str, out_path: Path, voice: str = "en-US-AriaNe
                 if chunk["type"] == "audio":
                     f.write(chunk["data"])
     except Exception as e:
-        error_msg = str(e)
-        if "DNS" in error_msg or "getaddrinfo" in error_msg or "No address" in error_msg:
+        error_msg_lower = str(e).lower()
+        
+        # Check for DNS-related errors
+        if any(keyword in error_msg_lower for keyword in ["dns", "getaddrinfo", "no address"]):
             raise RuntimeError(
                 "Network error: Cannot reach Microsoft Edge TTS service.\n"
                 "DNS resolution failed - the service may be blocked by firewall.\n\n"
@@ -47,9 +49,10 @@ async def _synthesize_edge(text: str, out_path: Path, voice: str = "en-US-AriaNe
                 "  2. Verify firewall allows access to api.msedgeservices.com\n"
                 "  3. Run: python network_utils.py (for detailed diagnosis)\n"
                 "  4. See: FIREWALL_TROUBLESHOOTING.md for help\n\n"
-                f"Original error: {error_msg}"
+                f"Original error: {e}"
             ) from e
-        elif "Connection" in error_msg or "timeout" in error_msg.lower():
+        # Check for connection-related errors
+        elif any(keyword in error_msg_lower for keyword in ["connection", "timeout", "refused"]):
             raise RuntimeError(
                 "Network error: Cannot connect to Microsoft Edge TTS service.\n"
                 "Connection timeout or refused - the service may be blocked by firewall.\n\n"
@@ -58,11 +61,11 @@ async def _synthesize_edge(text: str, out_path: Path, voice: str = "en-US-AriaNe
                 "  2. Verify proxy settings are configured\n"
                 "  3. Run: python network_utils.py (for detailed diagnosis)\n"
                 "  4. See: FIREWALL_TROUBLESHOOTING.md for help\n\n"
-                f"Original error: {error_msg}"
+                f"Original error: {e}"
             ) from e
         else:
             raise RuntimeError(
-                f"Edge TTS error: {error_msg}\n\n"
+                f"Edge TTS error: {e}\n\n"
                 "For network troubleshooting, run: python network_utils.py\n"
                 "For detailed help, see: FIREWALL_TROUBLESHOOTING.md"
             ) from e

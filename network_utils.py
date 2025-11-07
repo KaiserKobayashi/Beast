@@ -162,8 +162,7 @@ COMMON FIREWALL ISSUES:
 TESTING CONNECTIVITY:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Run this command to test your connection:
-    python -c "from network_utils import test_edge_tts_connection; 
-               import json; print(json.dumps(test_edge_tts_connection(), indent=2))"
+    python network_utils.py
 
 ALTERNATIVE SOLUTIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -194,7 +193,6 @@ if __name__ == "__main__":
             for rec in results["recommendations"]:
                 print(f"  • {rec}")
         print()
-        print("For detailed help, run:")
-        print("  python -c \"from network_utils import get_firewall_help_text; print(get_firewall_help_text())\"")
+        print("For detailed help, see FIREWALL_TROUBLESHOOTING.md")
     else:
         print("✅ Connection successful! Edge-TTS is accessible.")
