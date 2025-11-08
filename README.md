@@ -139,6 +139,21 @@ All Beast modules are designed to work together seamlessly. See:
 - **AUDIO_EXAMPLES.md** - Practical examples and tutorials
 - **beast_api.py** - Unified Python API for easy integration
 
+### Planning & Innovation
+
+Want to see what's next or contribute ideas?
+- **ROADMAP.md** - Development roadmap and priorities
+- **INNOVATION_LAB.md** - 🚀 Brainstorming space for creative ideas and future features!
+
+The Innovation Lab is where we explore:
+- Creative combinations of existing features
+- New workflow ideas
+- Emerging technology integration
+- Community suggestions
+- Wild ideas that might become reality
+
+**Have an innovative idea?** Add it to INNOVATION_LAB.md or open a GitHub Discussion!
+
 ### For Developers
 
 Modules communicate through standard formats (WAV, SRT, JSON) and shared configuration. New features should:
@@ -146,6 +161,7 @@ Modules communicate through standard formats (WAV, SRT, JSON) and shared configu
 - Follow existing CLI patterns
 - Document integration points
 - Support both CLI and programmatic use
+- Check INNOVATION_LAB.md for potential synergies with planned features
 
 ### GUI Access
 
