@@ -1,5 +1,7 @@
 ﻿PySimpleGUI>=4.60
 pydub
 requests
+yt-dlp
+openai-whisper
 # optional runtime for some TTS flows:
 # ffmpeg-python
