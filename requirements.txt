@@ -1,5 +1,6 @@
 ﻿PySimpleGUI>=4.60
 pydub
 requests
+deep-translator>=1.11.4
 # optional runtime for some TTS flows:
 # ffmpeg-python

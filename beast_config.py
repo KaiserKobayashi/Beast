@@ -22,7 +22,10 @@ default_config = {
     "last_output": "",
     "last_voice": "default",
     "last_format": "mp3",
-    "last_rate": 1.0
+    "last_rate": 1.0,
+    "translation_source_lang": "auto",
+    "translation_target_lang": "en",
+    "translation_cache_enabled": True
 }
 
 def load_config():
