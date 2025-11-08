@@ -3,3 +3,13 @@ pydub
 requests
 # optional runtime for some TTS flows:
 # ffmpeg-python
+
+# Audio source separation and enhancement (NEW)
+demucs>=4.0.0  # State-of-the-art audio source separation
+torch>=2.0.0  # Required by demucs
+torchaudio>=2.0.0  # Audio processing for torch
+numpy>=1.21.0  # Array operations
+noisereduce>=2.0.0  # Advanced noise reduction (optional but recommended)
+
+# Whisper transcription (optional but recommended for full workflow)
+# openai-whisper>=20230314  # Uncomment to enable Whisper transcription
