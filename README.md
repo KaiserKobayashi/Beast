@@ -132,10 +132,38 @@ python audio_separation.py --input song.mp3 --output separated/
 python audio_mixing.py mix --input separated/ --output new_mix.wav --volumes "vocals:+2,drums:-1"
 ```
 
+## Architecture & Integration
+
+All Beast modules are designed to work together seamlessly. See:
+- **ARCHITECTURE.md** - Complete module integration guide
+- **AUDIO_EXAMPLES.md** - Practical examples and tutorials
+- **beast_api.py** - Unified Python API for easy integration
+
+### For Developers
+
+Modules communicate through standard formats (WAV, SRT, JSON) and shared configuration. New features should:
+- Use the Beast API for cross-module integration
+- Follow existing CLI patterns
+- Document integration points
+- Support both CLI and programmatic use
+
+### GUI Access
+
+Two GUI options available:
+- **beast_gui.py** - Original simple GUI for TTS/SRT workflows
+- **beast_gui_enhanced.py** - NEW! Comprehensive tabbed GUI with all audio enhancement features
+
+Run the enhanced GUI:
+```bash
+python beast_gui_enhanced.py
+```
+
 ## Contributing
 
 - Create a branch for changes (feature/<name>) and open a pull request.
 - Run tests and linters before opening a PR.
+- Check ARCHITECTURE.md for integration guidelines
+- Ensure new features work with existing modules
 
 ## License
 
