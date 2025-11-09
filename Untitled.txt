@@ -1,0 +1,115 @@
+
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+Install the latest PowerShell for new features and improvements! https://aka.ms/PSWindows
+
+PS C:\Users\kaise> cd C:\Build\Beast
+PS C:\Build\Beast> Set-Location 'C:\Build\Beast'; Remove-Item -Path ._pycache_\PySimpleGUI* -Force -ErrorAction SilentlyContinue; Remove-Item -Path .\PySimpleGUI.py -Force -ErrorAction SilentlyContinue; . \.venv\Scripts\python.exe -m pip uninstall PySimpleGUI -y; . \.venv\Scripts\python.exe -m pip cache purge; . \.venv\Scripts\python.exe -m pip install --force-reinstall --index-url https://pypi.org/simple PySimpleGUI; . \.venv\Scripts\python.exe -c "import importlib.util,sys; spec=importlib.util.find_spec('PySimpleGUI'); print('spec =', spec); import PySimpleGUI as sg; print('file =', getattr(sg,'file',None)); print('version =', getattr(sg,'version',None)); print('has theme =', hasattr(sg,'theme')); print('has Text =', hasattr(sg,'Text'))"; . \.venv\Scripts\python.exe -m DownloadBeast
+. \.venv\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:185
++ ... orce -ErrorAction SilentlyContinue; . \.venv\Scripts\python.exe -m pip  ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+. \.venv\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:244
++ ... xe -m pip uninstall PySimpleGUI -y; . \.venv\Scripts\python.exe -m pip  ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+. \.venv\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:290
++ ... ipts\python.exe -m pip cache purge; . \.venv\Scripts\python.exe -m pip  ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+. \.venv\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:398
++ ... ttps://pypi.org/simple PySimpleGUI; . \.venv\Scripts\python.exe -c "imp ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+. \.venv\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:725
++ ... 'has Text =', hasattr(sg,'Text'))"; . \.venv\Scripts\python.exe -m Down ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+PS C:\Build\Beast> Set-Location 'C:\Build\Beast'; Remove-Item -Path ._pycache_\PySimpleGUI* -Force -ErrorAction SilentlyContinue; Remove-Item -Path .\PySimpleGUI.py -Force -ErrorAction SilentlyContinue; . \.venv\Scripts\python.exe -m pip uninstall PySimpleGUI -y; . \.venv\Scripts\python.exe -m pip cache purge; . \.venv\Scripts\python.exe -m pip install --force-reinstall --index-url https://pypi.org/simple PySimpleGUI; . \.venv\Scripts\python.exe -c "import importlib.util,sys; spec=importlib.util.find_spec('PySimpleGUI'); print('spec =', spec); import PySimpleGUI as sg; print('file =', getattr(sg,'file',None)); print('version =', getattr(sg,'version',None)); print('has theme =', hasattr(sg,'theme')); print('has Text =', hasattr(sg,'Text'))"; . \.venv\Scripts\python.exe -m DownloadBeast
+. \.venv\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:185
++ ... orce -ErrorAction SilentlyContinue; . \.venv\Scripts\python.exe -m pip  ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+. \.venv\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:244
++ ... xe -m pip uninstall PySimpleGUI -y; . \.venv\Scripts\python.exe -m pip  ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+. \.venv\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:290
++ ... ipts\python.exe -m pip cache purge; . \.venv\Scripts\python.exe -m pip  ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:398
++. \.venv ... ttps://pypi.org/simple PySimpleGUI; . \.venv\Scripts\python.exe -c "imp ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+. \.venv\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:725
++ ... 'has Text =', hasattr(sg,'Text'))"; . \.venv\Scripts\python.exe -m Down ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+PS C:\Build\Beast> 
+. \.venv\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:154
++ ... orce -ErrorAction SilentlyContinue; . \.venv\Scripts\python.exe -m pip  ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+. \.venv\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:213
++ ... xe -m pip uninstall PySimpleGUI -y; . \.venv\Scripts\python.exe -m pip  ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+. \.venv\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:259
++ ... ipts\python.exe -m pip cache purge; . \.venv\Scripts\python.exe -m pip  ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+. \.venv\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:367
++ ... ttps://pypi.org/simple PySimpleGUI; . \.venv\Scripts\python.exe -c "imp ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+. \.venv\Scripts\python.exe : The module '. \.venv' could not be loaded. For more information, run 'Import-Module . \.venv'.
+At line:1 char:694
++ ... 'has Text =', hasattr(sg,'Text'))"; . \.venv\Scripts\python.exe -m Down ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (. \.venv\Scripts\python.exe:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CouldNotAutoLoadModule
+
+PS C:\Build\Beast>

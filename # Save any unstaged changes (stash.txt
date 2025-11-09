@@ -1,0 +1,26 @@
+# Save any unstaged changes (stash keeps tracked-modified files)
+git status --short
+git stash push -m "WIP: local edits before rebase"
+
+# Update remote refs and rebase local branch onto remote
+git fetch origin
+git checkout feature/tts-integration
+git rebase origin/feature/tts-integration
+
+# Reapply your stashed changes
+git stash pop
+
+# If stash pop reports conflicts, resolve them, then:
+#   Edit each conflicted file, remove <<<<<<</======/>>>>>> markers, then:
+#   git add <file>
+#   After all resolved: git commit -m "Apply local edits after rebase"
+#
+# If stash applied cleanly, just commit your changes:
+git add -A
+git commit -m "Apply local edits after rebase (was stashed)"
+
+# Push the rebased branch
+git push origin feature/tts-integration
+
+# If git rejects the push because the remote changed again, push with safe force:
+# git push --force-with-lease origin feature/tts-integration

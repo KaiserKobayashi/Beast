@@ -1,0 +1,13 @@
+$txt=@`
+
+[
+    "whisper_model": "openai/whisper-small",
+    "voicevox_keep": {
+    
+  "en": {"male": "speaker_id_x", "female": "speaker_id_y"},
+   ja": {"male": "speaker_id_a", "female": "speaker_id_b"}
+  }
+}
+
+`@
+ Voicevox, Google TTS, Coeiroink, OpenJTalk

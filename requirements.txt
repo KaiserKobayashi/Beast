@@ -1,6 +1,5 @@
-﻿PySimpleGUI>=4.60
-pydub
+fastapi
+uvicorn[standard]
 requests
-yt-dlp
-# optional runtime for some TTS flows:
-# ffmpeg-python
+python-multipart
+websockets

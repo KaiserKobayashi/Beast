@@ -1,0 +1,11 @@
+$txt = @' [build-system] requires = ["setuptools>=61", "wheel"] build-backend = "setuptools.build_meta"
+
+[project] name = "downloadbeast-leviathon" version = "6.3.3" description = "DownloadBeast - Leviathon: URL & video downloader with subtitle, transcription, translation, embedding and dubbing tools." readme = "README.md" authors = [ { name="Colin KaiserKobayashi Gerrard", email="kaiserkobayashi1984@gmail.com" } ] requires-python = ">=3.8" dependencies = [ "PySimpleGUI>=4.0" ]
+
+[tool.setuptools.packages.find] where = ["src"] exclude = ["tests*"]
+
+[project.scripts] downloadbeast-leviathon = "downloadbeast.main:main" 
+
+'@
+
+[System.IO.File]::WriteAllText((Resolve-Path .\pyproject.toml), $txt, [System.Text.Encoding]::UTF8) Write-Host "Wrote clean pyproject.toml (UTF8, no BOM)."

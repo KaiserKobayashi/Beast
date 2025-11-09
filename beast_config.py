@@ -1,6 +1,7 @@
-﻿"""
-Small config helper to persist GUI settings.
-Saves config to %APPDATA% on Windows or ~/.config/beast/config.json on Unix.
+﻿#!/usr/bin/env python3
+"""
+Simple config helper for Beast GUI.
+Saves settings to %APPDATA%/beast/config.json on Windows, else ~/.config/beast/config.json
 """
 import json
 import os
@@ -17,12 +18,16 @@ def config_path():
 
 default_config = {
     "theme": "SystemDefault",
-    "voices": ["default"],
+    "voices": [],
     "last_input": "",
     "last_output": "",
-    "last_voice": "default",
+    "last_voice": "",
+    "last_gender": "auto",
     "last_format": "mp3",
-    "last_rate": 1.0
+    "last_rate": 1.0,
+    "last_tts_backend": "google",
+    "last_use_claude": True,
+    "last_claude_mode": "translate"
 }
 
 def load_config():

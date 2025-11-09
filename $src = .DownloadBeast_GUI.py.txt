@@ -1,0 +1,562 @@
+$src = ".\DownloadBeast_GUI.py"
+$bk = Join-Path ".\backups" ("DownloadBeast_GUI.py.bak_" + (Get-Date -Format yyyyMMddHHmmss))
+Copy-Item -Path $src -Destination $bk -Force
+Write-Host "Backup saved to $bk"
+$content = @'
+
+#!/usr/bin/env python3
+"""
+DownloadBeast_GUI.py
+
+Unified GUI for:
+ - downloading videos (yt-dlp)
+ - extracting subtitles / forcing transcription (whisper / SpeechRecognition / repo-local)
+ - translation / rewrite via repo-local translators or Anthropic/Claude (modules/ai_claude.py)
+ - cloud TTS synthesis (Google Cloud or ElevenLabs) with disk caching (modules/tts_cloud.py)
+ - quick playback and file open
+
+Notes:
+ - This script expects optional helper modules in ./modules:
+     - modules/tts_cloud.py     (synthesize_text)
+     - modules/ai_claude.py     (rewrite_for_tts)
+     - modules/translate_helpers*.py  (local translators)
+     - modules/transcribe_translate.py (local transcribe helper)
+ - Environment variables:
+     - GOOGLE_APPLICATION_CREDENTIALS (Google Cloud service account JSON) for Google TTS
+     - ANTHROPIC_API_KEY for Claude (if used)
+     - ELEVENLABS_API_KEY for ElevenLabs (if used)
+ - Requirements (recommended):
+     pip install PySimpleGUI yt-dlp google-cloud-texttospeech requests anthropic sounddevice scipy numpy SpeechRecognition whisper
+   (whisper and large deps are optional)
+ - Behavior:
+     - Download a video (or point to local file).
+     - If subtitles available, you can extract them; otherwise use transcription path.
+     - Use Claude (optional) to translate/rewrite; then synthesize via selected TTS backend.
+     - Synthesized audio is cached (./tts_cache) keyed by hash(text+voice+opts).
+ - Backup: this file is intended to replace an existing DownloadBeast_GUI.py; BACKUP before overwriting.
+"""
+
+from __future__ import annotations
+import os
+import sys
+import subprocess
+import threading
+import queue
+import tempfile
+import time
+import hashlib
+import json
+import importlib.util
+import glob
+from datetime import datetime
+from pathlib import Path
+import PySimpleGUI as sg
+
+# local small config helper (simple, safe)
+try:
+    from beast_config import load_config, save_config
+except Exception:
+    # minimal fallback
+    def load_config():
+        return {}
+    def save_config(cfg):
+        pass
+
+# Optional heavy imports guarded
+try:
+    import sounddevice as sd
+    from scipy.io.wavfile import write as wav_write
+    import numpy as np
+    HAVE_SOUNDDEVICE = True
+except Exception:
+    HAVE_SOUNDDEVICE = False
+
+try:
+    import whisper
+    HAVE_WHISPER = True
+except Exception:
+    HAVE_WHISPER = False
+
+try:
+    import speech_recognition as sr
+    HAVE_SPEECHRECOG = True
+except Exception:
+    HAVE_SPEECHRECOG = False
+
+try:
+    from googletrans import Translator as GoogleTranslator
+    HAVE_GOOGLETRANS = True
+except Exception:
+    HAVE_GOOGLETRANS = False
+
+# Discover repo-local helpers
+def _import_module_from_path(name: str, path: str):
+    try:
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+LOCAL_TRANSCRIBE = None
+_transcribe_path = os.path.join(os.getcwd(), "modules", "transcribe_translate.py")
+if os.path.exists(_transcribe_path):
+    mod = _import_module_from_path("modules.transcribe_translate", _transcribe_path)
+    if mod:
+        LOCAL_TRANSCRIBE = getattr(mod, "transcribe_file", None) or getattr(mod, "transcribe", None)
+
+# local translators discovery
+def discover_local_translators(modules_dir="modules"):
+    local_translators = {}
+    local_labels = {}
+    for path in glob.glob(os.path.join(os.getcwd(), modules_dir, "translate_helpers*.py")):
+        fname = os.path.basename(path)
+        if fname == "translate_helpers.py":
+            code = "local"
+            label = "Local helper"
+        else:
+            if fname.startswith("translate_helpers_"):
+                suffix = fname[len("translate_helpers_"):-3]
+            else:
+                suffix = fname[:-3]
+            code = suffix.lower().strip()
+            label = suffix.replace("_", " ").title() + " (local)"
+        mod = _import_module_from_path(f"local_translate_{code}", path)
+        if not mod:
+            continue
+        translator = None
+        if hasattr(mod, "translate_text") and callable(getattr(mod, "translate_text")):
+            translator = getattr(mod, "translate_text")
+        else:
+            for fn in (f"translate_to_{code}", f"translate_{code}", f"to_{code}", "translate"):
+                if hasattr(mod, fn) and callable(getattr(mod, fn)):
+                    translator = getattr(mod, fn)
+                    break
+        if translator:
+            local_translators[code] = translator
+            local_labels[code] = label
+    return local_translators, local_labels
+
+LOCAL_TRANSLATORS, LOCAL_LABELS = discover_local_translators()
+
+# discover tts_cloud voice map if present
+def discover_voice_map():
+    vm = {}
+    path = os.path.join(os.getcwd(), "modules", "tts_cloud.py")
+    if os.path.exists(path):
+        mod = _import_module_from_path("modules.tts_cloud", path)
+        if mod:
+            vm = getattr(mod, "DEFAULT_VOICE_MAP", {}) or {}
+    # fallback to an empty map
+    return vm
+
+VOICE_MAP = discover_voice_map()
+
+# basic language label helper
+def prettify(code: str) -> str:
+    lookup = {"en":"English","ja":"Japanese","es":"Spanish","fr":"French","de":"German","pt":"Portuguese","zh":"Chinese"}
+    if code in lookup: return lookup[code]
+    base = code.split("-")[0]
+    if base in lookup: return lookup[base]
+    return code.replace("_"," ").title()
+
+# Build LANG choices: auto + voice_map keys + local translators
+LANGS = [("auto","Auto-detect")]
+for c in sorted(VOICE_MAP.keys()):
+    LANGS.append((c, prettify(c)))
+for c, lbl in LOCAL_LABELS.items():
+    if c not in [x[0] for x in LANGS]:
+        LANGS.append((c, lbl))
+if len(LANGS) == 1:
+    LANGS.extend([("en","English"),("ja","Japanese"),("es","Spanish")])
+
+# Try import cloud modules (optional)
+TTS_CLOUD = None
+AI_CLAUDE = None
+try:
+    TTS_CLOUD = _import_module_from_path("modules.tts_cloud", os.path.join(os.getcwd(), "modules", "tts_cloud.py"))
+except Exception:
+    TTS_CLOUD = None
+try:
+    AI_CLAUDE = _import_module_from_path("modules.ai_claude", os.path.join(os.getcwd(), "modules", "ai_claude.py"))
+except Exception:
+    AI_CLAUDE = None
+
+# paths
+LOGS_DIR = os.path.join(os.getcwd(), "logs")
+TTS_CACHE_DIR = os.path.join(os.getcwd(), "tts_cache")
+os.makedirs(LOGS_DIR, exist_ok=True)
+os.makedirs(TTS_CACHE_DIR, exist_ok=True)
+
+# helper: run yt-dlp to download video/audio and extract subtitles
+def yt_download(url: str, dest_dir: str, extract_subs: bool=False, format_code: str="bestaudio"):
+    """
+    Returns dict: {"ok":True, "video":video_path, "subs":subtitle_path or None, "err": msg}
+    """
+    cmd = ["yt-dlp", url, "-f", format_code, "-o", os.path.join(dest_dir, "%(title)s.%(ext)s")]
+    if extract_subs:
+        # ask yt-dlp for all subtitles (auto/auto-generated)
+        cmd += ["--write-auto-sub", "--write-sub", "--sub-lang", "all", "--convert-subs", "srt"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        # try to find downloaded file name from stdout or list files in dest_dir by recent time
+        files = sorted(Path(dest_dir).glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+        video = None
+        subs = None
+        for f in files:
+            if f.suffix.lower() in (".mp4", ".mkv", ".webm", ".m4a", ".mp3", ".wav"):
+                video = str(f)
+                break
+        for f in files:
+            if f.suffix.lower() in (".srt", ".vtt"):
+                subs = str(f)
+                break
+        return {"ok":True, "video":video, "subs":subs, "out":proc.stdout}
+    except subprocess.CalledProcessError as e:
+        return {"ok":False, "err": e.stderr or str(e)}
+
+# transcription utilities
+def transcribe_with_local(path: str):
+    if LOCAL_TRANSCRIBE:
+        try:
+            return LOCAL_TRANSCRIBE(path)
+        except Exception:
+            return None
+    return None
+
+def transcribe_with_whisper(path: str, model="small"):
+    if not HAVE_WHISPER:
+        return None
+    try:
+        wt = whisper.load_model(model)
+        r = wt.transcribe(path)
+        return r.get("text", "")
+    except Exception:
+        return None
+
+def transcribe_with_speechrec(path: str):
+    if not HAVE_SPEECHRECOG:
+        return None
+    try:
+        r = sr.Recognizer()
+        with sr.AudioFile(path) as source:
+            audio = r.record(source)
+        return r.recognize_google(audio)
+    except Exception:
+        return None
+
+def try_transcribe(path: str):
+    # try local -> whisper -> speech_rec
+    out = transcribe_with_local(path)
+    if out:
+        return out, "local"
+    out = transcribe_with_whisper(path)
+    if out:
+        return out, "whisper"
+    out = transcribe_with_speechrec(path)
+    if out:
+        return out, "google_sr"
+    return None, None
+
+# translation utilities
+def try_local_translate(text: str, target_code: str):
+    # target_code could be 'ainu' or language code
+    if target_code in LOCAL_TRANSLATORS:
+        fn = LOCAL_TRANSLATORS[target_code]
+        try:
+            try:
+                return fn(text, target_code)
+            except TypeError:
+                return fn(text)
+        except Exception:
+            return None
+    if "local" in LOCAL_TRANSLATORS:
+        try:
+            return LOCAL_TRANSLATORS["local"](text, target_code)
+        except Exception:
+            return None
+    return None
+
+def try_googletrans(text: str, target_code: str):
+    if not HAVE_GOOGLETRANS:
+        return None
+    try:
+        tr = GoogleTranslator()
+        return tr.translate(text, dest=target_code).text
+    except Exception:
+        return None
+
+def try_claude_rewrite(text: str, target_lang: str, mode: str = "translate"):
+    if AI_CLAUDE is None:
+        return None
+    try:
+        return AI_CLAUDE.rewrite_for_tts(text, target_lang=target_lang, mode=mode)
+    except Exception:
+        return None
+
+# TTS synth wrapper (calls modules.tts_cloud.synthesize_text)
+def synthesize_text_via_cloud(backend: str, text: str, voice: str, fmt: str="mp3", rate: float=1.0, api_key: str=None, cache: bool=True):
+    if TTS_CLOUD is None:
+        raise RuntimeError("modules/tts_cloud.py not available")
+    # write temp text file
+    fd, tf = tempfile.mkstemp(prefix="beast_text_", suffix=".txt", text=True)
+    os.close(fd)
+    try:
+        with open(tf, "w", encoding="utf-8") as f:
+            f.write(text)
+        out = TTS_CLOUD.synthesize_text(backend=backend, text_file=tf, out_path=None, voice=voice, fmt=fmt, rate=rate, api_key=api_key, cache=cache)
+        return out
+    finally:
+        try:
+            os.remove(tf)
+        except Exception:
+            pass
+
+# helper to compute a small cache-key for preview (not used for tts_cloud internal cache)
+def _hash_text(text: str, voice: str, fmt: str, backend: str, rate: float):
+    key = json.dumps({"text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(), "voice":voice or "", "fmt":fmt, "backend":backend, "rate":float(rate)}, sort_keys=True)
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+# UI layout
+cfg = load_config()
+sg.theme(cfg.get("theme", "SystemDefault"))
+
+voice_choices = []
+for code, vmap in VOICE_MAP.items():
+    for side in vmap.keys():
+        voice_choices.append(f"{code} ({side})")
+if not voice_choices:
+    voice_choices = [cfg.get("last_voice","")]
+
+layout = [
+    [sg.Text("DownloadBeast — Download / Subtitles / TTS", font=("Segoe UI", 14))],
+    [sg.Text("Video URL or local file:"), sg.Input("", key="-URL-"), sg.FileBrowse(file_types=(("Video","*.mp4;*.mkv;*.webm;*.mov"),)), sg.Button("Download", key="-DOWNLOAD-")],
+    [sg.Checkbox("Extract subtitles if available", key="-EXTRACTSUBS-", default=True), sg.Text("OR use ASR on audio"), sg.Checkbox("Use ASR", key="-USE_ASR-", default=True)],
+    [sg.Text("Subtitles / Transcript:"), sg.Multiline("", size=(100,6), key="-SUBS-")],
+    [sg.Button("Transcribe from file", key="-TRANSCRIBE-"), sg.Button("Translate/Rewrite", key="-TRANSLATE-")],
+    [sg.Text("Translate target:"), sg.Combo([lbl for (_,lbl) in LANGS], default_value="Auto-detect", key="-LANG-"), sg.Combo(list(LOCAL_LABELS.values()) or [], visible=False)],
+    [sg.Text("TTS Backend:"), sg.Combo(values=["google","elevenlabs"], default_value=cfg.get("last_tts_backend","google"), key="-TTSBACKEND-"),
+     sg.Text("Voice:"), sg.Combo(values=voice_choices, default_value=cfg.get("last_voice",""), key="-VOICE-"),
+     sg.Text("Format:"), sg.Combo(values=["mp3","wav"], default_value=cfg.get("last_format","mp3"), key="-FORMAT-"),
+     sg.Text("Rate:"), sg.Slider(range=(0.5,1.6), default_value=cfg.get("last_rate",1.0), resolution=0.05, orientation="h", size=(20,10), key="-RATE-")],
+    [sg.Checkbox("Use Claude for rewrite/translate before TTS", key="-USECLAUDE-", default=cfg.get("last_use_claude", True)), sg.Combo(values=["translate","rewrite","translate_and_rewrite"], default_value=cfg.get("last_claude_mode","translate"), key="-CLAUDEMODE-")],
+    [sg.Button("Synthesize TTS", key="-SYNTH-"), sg.Button("Play audio", key="-PLAY-", disabled=True), sg.Button("Open Output Folder", key="-OPENFOLDER-")],
+    [sg.Text("Log:")],
+    [sg.Multiline("", size=(120,12), key="-LOG-", autoscroll=True, disabled=True)]
+]
+
+window = sg.Window("DownloadBeast", layout, finalize=True, resizable=True)
+
+# state
+last_audio = None
+last_download_dir = os.path.join(os.getcwd(), "downloads")
+os.makedirs(last_download_dir, exist_ok=True)
+bg_queue = queue.Queue()
+
+# background worker to stream subprocess output into GUI safely
+def enqueue_subproc(proc, out_q):
+    try:
+        for line in iter(proc.stdout.readline, b''):
+            if not line:
+                break
+            out_q.put(line.decode(errors='replace'))
+    finally:
+        try:
+            proc.stdout.close()
+        except Exception:
+            pass
+
+# main loop
+while True:
+    event, values = window.read(timeout=100)
+    if event in (sg.WIN_CLOSED, None):
+        break
+
+    if event == "-DOWNLOAD-":
+        url = values["-URL-"].strip()
+        if not url:
+            sg.popup_error("Enter a video URL or pick a local file.")
+            continue
+        window["-LOG-"].print(f"Starting download for: {url}")
+        # run download in background
+        def _dl():
+            res = yt_download(url, last_download_dir, extract_subs=values["-EXTRACTSUBS-"])
+            if not res.get("ok"):
+                window["-LOG-"].print("Download failed: " + str(res.get("err")))
+                return
+            vid = res.get("video")
+            subs = res.get("subs")
+            window["-LOG-"].print(f"Downloaded: {vid}")
+            if subs:
+                window["-LOG-"].print(f"Subtitle file: {subs}")
+                try:
+                    with open(subs, "r", encoding="utf-8") as f:
+                        s = f.read()
+                    window["-SUBS-"].update(s)
+                except Exception:
+                    window["-LOG-"].print("Could not open subtitle file.")
+            else:
+                window["-LOG-"].print("No subtitles found.")
+        threading.Thread(target=_dl, daemon=True).start()
+
+    if event == "-TRANSCRIBE-":
+        # transcribe from downloaded file or a user-selected file
+        # try to find recent downloaded video in downloads/
+        files = sorted(Path(last_download_dir).glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+        video_path = None
+        for f in files:
+            if f.suffix.lower() in (".mp4", ".mkv", ".webm", ".m4a", ".mp3", ".wav"):
+                video_path = str(f)
+                break
+        if not video_path:
+            sg.popup_error("No downloaded media found. Provide a file or download first.")
+            continue
+        window["-LOG-"].print(f"Transcribing: {video_path}")
+        # extract audio with ffmpeg to temp wav
+        fd, tmpwav = tempfile.mkstemp(prefix="db_audio_", suffix=".wav")
+        os.close(fd)
+        ff = ["ffmpeg", "-y", "-i", video_path, "-ar", "16000", "-ac", "1", tmpwav]
+        try:
+            subprocess.run(ff, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except Exception as e:
+            window["-LOG-"].print("ffmpeg failed: " + str(e))
+            try:
+                os.remove(tmpwav)
+            except Exception:
+                pass
+            continue
+        txt, backend = try_transcribe(tmpwav)
+        try:
+            os.remove(tmpwav)
+        except Exception:
+            pass
+        if txt:
+            window["-SUBS-"].update(txt)
+            window["-LOG-"].print(f"Transcription ({backend}) complete, {len(txt)} characters.")
+        else:
+            window["-LOG-"].print("No transcription available with installed backends.")
+
+    if event == "-TRANSLATE-":
+        src = values["-SUBS-"].strip()
+        if not src:
+            sg.popup_error("No subtitle/transcript text available to translate.")
+            continue
+        lang_label = values["-LANG-"]
+        # map label to code
+        target_code = None
+        for code, label in LANGS:
+            if label == lang_label:
+                target_code = code; break
+        if not target_code:
+            # check local labels
+            for code, label in LOCAL_LABELS.items():
+                if label == lang_label:
+                    target_code = code; break
+        if not target_code:
+            target_code = "auto"
+        window["-LOG-"].print(f"Translating to: {target_code}")
+        # prefer local translator
+        out = try_local_translate(src, target_code)
+        if out:
+            window["-SUBS-"].update(out)
+            window["-LOG-"].print("Translated via local helper.")
+            continue
+        # else try Claude if requested in UI
+        if values["-USECLAUDE-"] and AI_CLAUDE:
+            out = try_claude_rewrite(src, target_code, mode=values["-CLAUDEMODE-"])
+            if out:
+                window["-SUBS-"].update(out)
+                window["-LOG-"].print("Processed by Claude.")
+                continue
+        # fallback to googletrans
+        out = try_googletrans(src, target_code)
+        if out:
+            window["-SUBS-"].update(out)
+            window["-LOG-"].print("Translated via googletrans.")
+        else:
+            window["-LOG-"].print("Translation failed / no translator available.")
+
+    if event == "-SYNTH-":
+        txt = values["-SUBS-"].strip() or values["-URL-"].strip()
+        if not txt:
+            sg.popup_error("No text available for TTS. Transcribe or paste text first.")
+            continue
+        backend = values["-TTSBACKEND-"] or "google"
+        fmt = values["-FORMAT-"] or "mp3"
+        rate = float(values["-RATE-"] or 1.0)
+        voice_field = values["-VOICE-"] or ""
+        # parse voice_field if it is like "en (male)"
+        voice_val = None
+        if voice_field and "(" in voice_field:
+            lang = voice_field.split()[0]
+            side = voice_field.split("(")[-1].strip(")")
+            if lang in VOICE_MAP and side in VOICE_MAP[lang]:
+                voice_val = VOICE_MAP[lang][side]
+            else:
+                voice_val = voice_field
+        else:
+            voice_val = voice_field or None
+        use_claude = values["-USECLAUDE-"]
+        claude_mode = values["-CLAUDEMODE-"]
+        # optionally run Claude rewrite first
+        processed_text = txt
+        if use_claude and AI_CLAUDE:
+            window["-LOG-"].print("Sending text to Claude for rewrite/translation...")
+            proc = try_claude_rewrite(txt, target_lang="auto", mode=claude_mode)
+            if proc:
+                processed_text = proc
+        # synth in background
+        def _synth():
+            nonlocal last_audio
+            try:
+                out_audio = synthesize_text_via_cloud(backend=backend, text=processed_text, voice=voice_val, fmt=fmt, rate=rate, api_key=None, cache=True)
+                last_audio = out_audio
+                window["-LOG-"].print("SYNTHESIZED_AUDIO_PATH: " + str(out_audio))
+                window["-PLAY-"].update(disabled=False)
+            except Exception as e:
+                window["-LOG-"].print("Synthesis failed: " + str(e))
+        threading.Thread(target=_synth, daemon=True).start()
+
+    if event == "-PLAY-":
+        if last_audio and os.path.exists(last_audio):
+            try:
+                if sys.platform.startswith("win"):
+                    os.startfile(last_audio)
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["afplay", last_audio])
+                else:
+                    # try mpg123/aplay
+                    if last_audio.lower().endswith(".mp3"):
+                        subprocess.Popen(["mpg123", last_audio])
+                    else:
+                        subprocess.Popen(["aplay", last_audio])
+            except Exception as e:
+                window["-LOG-"].print("Unable to play audio: " + str(e))
+
+    if event == "-OPENFOLDER-":
+        try:
+            path_to_open = last_download_dir
+            if not os.path.exists(path_to_open):
+                path_to_open = os.getcwd()
+            if sys.platform.startswith("win"):
+                os.startfile(path_to_open)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", path_to_open])
+            else:
+                subprocess.Popen(["xdg-open", path_to_open])
+        except Exception as e:
+            window["-LOG-"].print("Could not open folder: " + str(e))
+
+    # flush background queue (if using any)
+    while not bg_queue.empty():
+        msg = bg_queue.get_nowait()
+        window["-LOG-"].print(msg)
+
+# cleanup and exit
+window.close()
+
+'@
+
+Set-Content -Path $src -Value $content -Encoding UTF8
+Write-Host "Wrote full DownloadBeast_GUI.py"

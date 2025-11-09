@@ -1,0 +1,66 @@
+# --- Insert into layout where you want the TTS/STT panel ---
+import PySimpleGUI as sg
+from modules import interactive_tts
+
+tts_column = [
+    [sg.Text("Text / Paste here:")],
+    [sg.Multiline(key='-TTS_TEXT-', size=(60,6))],
+    [sg.Button("Speak", key='-SPEAK-'), sg.Button("Save audio", key='-SAVE_AUDIO-')],
+    [sg.Text("Or drop a .txt file:"), sg.Input(key='-TXT_FILE-'), sg.FileBrowse(file_types=(("Text Files", "*.txt"),))],
+    [sg.HorizontalSeparator()],
+    [sg.Text("Mic live transcribe:")],
+    [sg.Button("Start Mic", key='-MIC_START-'), sg.Button("Stop Mic", key='-MIC_STOP-')],
+    [sg.Checkbox("Translate to", key='-DO_TRANSLATE-'), sg.Combo(['en','ja','es','fr','de','zh-cn'], default_value='en', key='-TARGET_LANG-')],
+    [sg.Checkbox("Also speak translation", key='-SPEAK_TRANSLATION-')],
+    [sg.Text("Log / Transcript:")],
+    [sg.Multiline(key='-TTS_LOG-', size=(60,10), disabled=True)]
+]
+
+# Add tts_column into your main layout (e.g., as sg.Column(tts_column))
+# --- Event loop additions (psuedocode) ---
+controller = None
+
+def gui_transcribe_callback(result):
+    # This runs in background thread; pass to GUI thread
+    window.write_event_value('-MIC_SEGMENT-', result)
+
+# inside the event loop:
+event, values = window.read(timeout=100)
+if event == '-SPEAK-':
+    text = values['-TTS_TEXT-'].strip()
+    if text:
+        # synthesize and play (nonblocking)
+        path = interactive_tts.synthesize_text(text, backend='gtts', lang='en')
+        if path:
+            interactive_tts.play_audio(path)
+            window['-TTS_LOG-'].update(f"Spoken saved to {path}\n", append=True)
+if event == '-SAVE_AUDIO-':
+    text = values['-TTS_TEXT-'].strip()
+    if text:
+        savepath = sg.popup_get_file('Save mp3 as', save_as=True, no_window=True, default_extension='.mp3')
+        if savepath:
+            interactive_tts.synthesize_text(text, out_path=savepath, backend='gtts', lang='en')
+            window['-TTS_LOG-'].update(f"Saved audio: {savepath}\n", append=True)
+
+if event == '-MIC_START-':
+    if controller is None:
+        controller = interactive_tts.start_live_transcribe(callback=gui_transcribe_callback,
+                                                          translate_to=(values['-TARGET_LANG-'] if values['-DO_TRANSLATE-'] else None),
+                                                          translate_and_speak=values['-SPEAK_TRANSLATION-'],
+                                                          tts_backend='gtts')
+        window['-TTS_LOG-'].update("Started mic...\n", append=True)
+
+if event == '-MIC_STOP-':
+    if controller:
+        interactive_tts.stop_live_transcribe(controller)
+        controller = None
+        window['-TTS_LOG-'].update("Stopped mic.\n", append=True)
+
+if event == '-MIC_SEGMENT-':
+    # this event is posted from the callback: values[event] is the dict
+    seg = values[event]
+    # seg example: {'text': text, 'lang': code, 'translated': ttext, 'audio_path': path}
+    ttext = seg.get('text') or ''
+    lang = seg.get('lang') or ''
+    translated = seg.get('translated') or ''
+    window['-TTS_LOG-'].update(f"[{lang}] {ttext}\nTranslated: {translated}\n", append=True)

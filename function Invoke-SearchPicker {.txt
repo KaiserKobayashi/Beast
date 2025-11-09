@@ -1,0 +1,36 @@
+function Invoke-SearchPicker {
+  param([string]$Query, [int]$Top = 10)
+
+  $yt = Resolve-Tool $YtDlp
+  $args = @(
+    $yt, "--skip-download", "--no-playlist",
+    "--print","%(title)s`t%(duration_string)s`t%(webpage_url)s`t%(id)s",
+    "ytsearch$($Top):$Query"
+  )
+  $lines = & $args[0] $args[1..($args.Count-1)]
+  if (-not $lines) { throw "No results for query: $Query" }
+
+  $items = @()
+  foreach ($line in $lines) {
+    $parts = $line -split "`t"
+    if ($parts.Count -ge 4) {
+      $items += New-Object psobject -Property @{
+        Title    = $parts[0]
+        Duration = $parts[1]
+        Url      = $parts[2]
+        Id       = $parts[3]
+      }
+    }
+  }
+  if (-not $items -or $items.Count -eq 0) { throw "No parsable results." }
+
+  if (Get-Command Out-GridView -ErrorAction SilentlyContinue) {
+    $picked = $items | Out-GridView -Title "Select a video" -PassThru
+    if ($picked) { return $picked.Url }
+    throw "Selection cancelled."
+  } else {
+    Write-Host "Out-GridView not available; picking the first result:" -ForegroundColor Yellow
+    Write-Host ("  {0} [{1}]" -f $items[0].Title, $items[0].Duration)
+    return $items[0].Url
+  }
+}

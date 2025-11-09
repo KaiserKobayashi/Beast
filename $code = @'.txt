@@ -1,0 +1,24 @@
+$code = @' 
+
+import PySimpleGUI as sg
+
+import PySimpleGUI as sg
+
+def main():
+    layout = [
+        [sg.Text("DownloadBeast — Test GUI")],
+        [sg.Button("OK")]
+    ]
+    window = sg.Window("DownloadBeast", layout)
+    while True:
+        event, values = window.read()
+        if event in (sg.WIN_CLOSED, "OK"):
+            break
+    window.close()
+
+if __name__ == "__main__":
+    main()
+
+'@ 
+
+Set-Content -Path .\src\DownloadBeast\gui.py -Value $code -Encoding UTF8

@@ -1,0 +1,431 @@
+Set-Location "C:\Build\Beast"
+@'
+# -*- coding: utf-8 -*-
+"""
+modules/auto_srt_all_tts_wrapper.py
+
+Improved TTS helper for DownloadBeast.
+
+Changes / fixes applied:
+- Fixed empty-line handling so silent segments produce AudioSegment.silent() (no invalid .read() usage).
+- Ensured consistent sample rate and channels for timeline and per-line audio.
+- Added simple caching of synthesized lines to avoid duplicate work.
+- Added configurable parallel synthesis with ThreadPoolExecutor (default 2 workers).
+- Added retry/backoff for HTTP calls to VoiceVox synthesis.
+- Guarded normalization to avoid -inf dBFS issues on silent audio.
+- Safer ffmpeg mux mapping: detects whether input video has audio via ffprobe and builds maps accordingly.
+- Ensures temporary WAV files are cleaned up even on error.
+- More informative logging via print() (can be swapped to logging module).
+- Optional gTTS fallback remains supported.
+
+Dependencies:
+  pip install pydub requests gTTS
+
+VoiceVox:
+  If using engine='voicevox', run voicevox_engine locally (default host http://127.0.0.1:50021).
+
+Note: pydub requires ffmpeg available on PATH.
+"""
+from __future__ import annotations
+import json
+import time
+import tempfile
+import shutil
+import subprocess
+import threading
+import math
+import hashlib
+from io import BytesIO
+from pathlib import Path
+from typing import List, Tuple, Optional, Dict
+
+import requests
+
+try:
+    from pydub import AudioSegment
+except Exception as e:
+    raise RuntimeError("pydub is required: pip install pydub") from e
+
+try:
+    from gtts import gTTS
+except Exception:
+    gTTS = None  # optional fallback
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+_LOCK = threading.Lock()
+
+
+# -------------------------
+# SRT helpers (small)
+# -------------------------
+def load_srt(path: Path) -> List[Tuple[int, float, float, str]]:
+    """
+    Minimal SRT reader -> list of (idx:int, start_sec:float, end_sec:float, text:str)
+    """
+    out: List[Tuple[int, float, float, str]] = []
+    path = Path(path)
+    if not path.exists():
+        return out
+    content = path.read_text(encoding="utf-8", errors="replace")
+    blocks = [b for b in content.split("\n\n") if b.strip()]
+    for b in blocks:
+        lines = b.splitlines()
+        if len(lines) >= 3 and " --> " in lines[1]:
+            try:
+                idx = int(lines[0].strip())
+            except Exception:
+                continue
+            start_s, end_s = lines[1].split(" --> ", 1)
+            start = _srt_time_to_sec(start_s.strip())
+            end = _srt_time_to_sec(end_s.strip())
+            text = "\n".join(lines[2:]).strip()
+            out.append((idx, start, end, text))
+    return out
+
+
+def _srt_time_to_sec(t: str) -> float:
+    # Format: HH:MM:SS,mmm
+    t = t.strip()
+    parts = t.split(":")
+    if len(parts) != 3:
+        return 0.0
+    h = int(parts[0]); m = int(parts[1])
+    s_parts = parts[2].split(",")
+    s = int(s_parts[0]); ms = int(s_parts[1]) if len(s_parts) > 1 else 0
+    return h * 3600 + m * 60 + s + ms / 1000.0
+
+
+# -------------------------
+# HTTP helper with retry
+# -------------------------
+def _http_post_with_retry(url: str, params=None, json_body=None, data=None, timeout=30, max_tries=3, backoff=0.7):
+    last_exc = None
+    for attempt in range(1, max_tries + 1):
+        try:
+            if json_body is not None:
+                r = requests.post(url, params=params, json=json_body, timeout=timeout)
+            else:
+                r = requests.post(url, params=params, data=data, timeout=timeout)
+            r.raise_for_status()
+            return r
+        except Exception as e:
+            last_exc = e
+            sleep_for = backoff * (2 ** (attempt - 1))
+            print(f"[voicevox] request failed (attempt {attempt}/{max_tries}): {e}. Retrying in {sleep_for:.1f}s")
+            time.sleep(sleep_for)
+    raise last_exc
+
+
+# -------------------------
+# Voice synthesis helpers
+# -------------------------
+def synthesize_voicevox_line(text: str, speaker: int = 1, host: str = "http://127.0.0.1:50021") -> bytes:
+    """
+    Synthesize a line using local VoiceVox Engine HTTP API.
+    Returns WAV bytes (RIFF/wav). On empty text returns b''.
+    Requires running voicevox_engine on given host.
+    """
+    if not text or not text.strip():
+        return b""
+    # 1) audio_query
+    q_url = f"{host}/audio_query"
+    params = {"text": text, "speaker": speaker}
+    r = _http_post_with_retry(q_url, params=params, timeout=10, max_tries=3)
+    audio_query = r.json()
+    # optional safe tuning defaults
+    audio_query.setdefault("speedScale", 1.0)
+    audio_query.setdefault("pitchScale", 0.0)
+    audio_query.setdefault("intonationScale", 1.0)
+    # 2) synthesis
+    syn_url = f"{host}/synthesis"
+    r2 = _http_post_with_retry(syn_url, params={"speaker": speaker}, json_body=audio_query, timeout=60, max_tries=3)
+    return r2.content
+
+
+def synthesize_gtts_line(text: str, lang: str = "en") -> bytes:
+    """
+    Fallback using gTTS. Returns WAV bytes encoded data.
+    Requires gTTS and an internet connection. On empty text returns b''.
+    """
+    if not text or not text.strip():
+        return b""
+    if gTTS is None:
+        raise RuntimeError("gTTS fallback not available; install with `pip install gTTS`")
+    t = gTTS(text=text, lang=lang)
+    bio = BytesIO()
+    t.write_to_fp(bio)
+    bio.seek(0)
+    mp3 = AudioSegment.from_file(bio, format="mp3")
+    out_bio = BytesIO()
+    mp3.export(out_bio, format="wav")
+    return out_bio.getvalue()
+
+
+def _hash_key_for_cache(text: str, engine: str, opts: Optional[dict]) -> str:
+    # stable hashing for caching
+    h = hashlib.sha256()
+    h.update(engine.encode("utf-8"))
+    if opts:
+        h.update(json.dumps(opts, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+    h.update(text.encode("utf-8"))
+    return h.hexdigest()
+
+
+def synthesize_line_to_segment(text: str, engine: str = "voicevox", engine_opts: Optional[dict] = None, sample_rate: int = 24000, channels: int = 1, cache: Optional[Dict[str, AudioSegment]] = None) -> AudioSegment:
+    """
+    Synthesize a single subtitle line and return a pydub.AudioSegment.
+    Uses cache (dict) if provided to avoid re-synthesis.
+    """
+    engine_opts = engine_opts or {}
+    cache = cache or {}
+
+    key = _hash_key_for_cache(text, engine, engine_opts)
+    if key in cache:
+        seg = cache[key]
+        # ensure frame_rate and channels match requested
+        if seg.frame_rate != sample_rate:
+            seg = seg.set_frame_rate(sample_rate)
+        if seg.channels != channels:
+            seg = seg.set_channels(channels)
+        return seg
+
+    wav_bytes = b""
+    if engine == "voicevox":
+        host = engine_opts.get("host", "http://127.0.0.1:50021")
+        speaker = int(engine_opts.get("speaker", 1))
+        wav_bytes = synthesize_voicevox_line(text, speaker=speaker, host=host)
+    elif engine == "gtts":
+        lang = engine_opts.get("lang", "en")
+        wav_bytes = synthesize_gtts_line(text, lang=lang)
+    else:
+        raise ValueError("Unknown TTS engine: " + str(engine))
+
+    if not wav_bytes:
+        seg = AudioSegment.silent(duration=0, frame_rate=sample_rate)
+        seg = seg.set_channels(channels)
+        cache[key] = seg
+        return seg
+
+    # load audio and normalize frame_rate/channels
+    seg = AudioSegment.from_file(BytesIO(wav_bytes), format="wav")
+    if seg.frame_rate != sample_rate:
+        seg = seg.set_frame_rate(sample_rate)
+    if seg.channels != channels:
+        seg = seg.set_channels(channels)
+    cache[key] = seg
+    return seg
+
+
+# -------------------------
+# Timeline assembly
+# -------------------------
+def assemble_audio_from_srt(
+    srt_path: Path,
+    engine: str = "voicevox",
+    engine_opts: Optional[dict] = None,
+    sample_rate: int = 24000,
+    channels: int = 1,
+    normalize: bool = True,
+    max_workers: int = 2,
+) -> Path:
+    """
+    Build a single WAV audio file from an SRT by synthesizing each line and placing it
+    at the subtitle start time. Returns path to the created WAV file.
+    - engine: 'voicevox' or 'gtts'
+    - engine_opts: dict forwarded to synthesize_line
+    - sample_rate: output sample rate (VoiceVox defaults to 24000)
+    - channels: 1 (mono) or 2 (stereo)
+    - max_workers: parallelism for synthesis (VoiceVox may be CPU-bound; keep conservative)
+    """
+    engine_opts = engine_opts or {}
+    segs = load_srt(srt_path)
+    if not segs:
+        raise RuntimeError("No segments found in srt: " + str(srt_path))
+
+    # Determine duration (end of last segment)
+    total_dur = max(end for (_, _, end, _) in segs) + 0.5  # small tail in seconds
+    timeline = AudioSegment.silent(duration=int(total_dur * 1000), frame_rate=sample_rate)
+    # enforce channels
+    timeline = timeline.set_channels(channels)
+
+    # Synthesize lines in parallel (bounded) into a local cache
+    cache: Dict[str, AudioSegment] = {}
+    futures = []
+    results = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as exe:
+        for idx, start, end, text in segs:
+            fut = exe.submit(synthesize_line_to_segment, text, engine, engine_opts, sample_rate, channels, cache)
+            futures.append((idx, start, end, text, fut))
+        # collect results as they finish
+        for (idx, start, end, text, fut) in futures:
+            try:
+                seg = fut.result()
+                results[idx] = (start, end, text, seg)
+                # overlay onto timeline
+                if seg is None:
+                    continue
+                # avoid extremely long overlaps: if segment duration would overflow next segment start,
+                # we still allow overlay; user can enable trimming later.
+                pos_ms = int(start * 1000)
+                try:
+                    timeline = timeline.overlay(seg, position=pos_ms)
+                except Exception as e:
+                    print(f"Warning: overlay failed for idx={idx}: {e}")
+            except Exception as e:
+                print(f"Warning: synthesis failed for idx={idx} start={start} text={text[:60]!r}: {e}")
+                continue
+
+    # Optional normalization guard
+    if normalize:
+        try:
+            if timeline.rms > 0:
+                timeline = _normalize_audio(timeline)
+            else:
+                print("[tts] timeline appears silent; skipping normalization")
+        except Exception as e:
+            print(f"[tts] normalization skipped due to error: {e}")
+
+    # Export to temp wav
+    fd, tmpname = tempfile.mkstemp(prefix="db_tts_", suffix=".wav")
+    Path(tmpname).unlink(missing_ok=True)
+    out_wav = Path(tmpname)
+    try:
+        timeline.export(out_wav, format="wav")
+    except Exception as e:
+        # ensure file descriptor closed
+        try:
+            os_fd = fd
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            # close low-level fd
+            import os as __os
+            try:
+                __os.close(fd)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    return out_wav
+
+
+def _normalize_audio(aud: AudioSegment, target_dBFS: float = -18.0) -> AudioSegment:
+    # guard against silent audio (dBFS -inf)
+    try:
+        if math.isfinite(aud.dBFS):
+            change_in_dBFS = target_dBFS - aud.dBFS
+            return aud.apply_gain(change_in_dBFS)
+        else:
+            return aud
+    except Exception:
+        return aud
+
+
+# -------------------------
+# FFmpeg / ffprobe helpers
+# -------------------------
+def find_ffmpeg() -> Optional[str]:
+    ff = shutil.which("ffmpeg")
+    return ff
+
+
+def _ffprobe_has_audio(video_path: Path) -> bool:
+    """
+    Returns True if ffprobe detects at least one audio stream.
+    """
+    ffprobe = shutil.which("ffprobe") or shutil.which("ffmpeg")
+    if not ffprobe:
+        # assume yes to be permissive; muxer will fail later if wrong
+        return True
+    cmd = [
+        ffprobe, "-v", "error",
+        "-select_streams", "a",
+        "-show_entries", "stream=index",
+        "-of", "csv=p=0",
+        str(video_path)
+    ]
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+    except Exception:
+        return True
+    out = proc.stdout.strip() if proc and hasattr(proc, "stdout") else ""
+    return bool(out)
+
+
+def _quote(p: Path) -> str:
+    # subprocess with list args means no manual quoting required, but helper kept for compatibility
+    return str(p)
+
+
+def mux_audio_into_video(
+    video_path: Path,
+    audio_path: Path,
+    out_path: Path,
+    keep_original_audio: bool = True,
+    audio_lang_tag: str = "und",
+    audio_codec: str = "aac",
+    bitrate: str = "192k",
+) -> None:
+    """
+    Adds audio_path as an additional audio stream to video_path and writes out_path.
+    Keeps original audio unless keep_original_audio=False (in which case it is replaced).
+    Uses ffprobe to detect presence of original audio and builds mapping accordingly.
+    """
+    video_path = Path(video_path)
+    audio_path = Path(audio_path)
+    out_path = Path(out_path)
+
+    if not video_path.exists():
+        raise FileNotFoundError(video_path)
+    if not audio_path.exists():
+        raise FileNotFoundError(audio_path)
+
+    ff = find_ffmpeg()
+    if not ff:
+        raise RuntimeError("ffmpeg not found in PATH")
+
+    has_audio = _ffprobe_has_audio(video_path)
+
+    args = [ff, "-y", "-i", str(video_path), "-i", str(audio_path)]
+
+    if keep_original_audio and has_audio:
+        # map video, original audio (0:a), and new audio (1:a)
+        args += ["-map", "0:v", "-map", "0:a?", "-map", "1:a"]
+        # copy video; copy original audio stream; encode new audio stream
+        args += ["-c:v", "copy", "-c:a:0", "copy", "-c:a:1", audio_codec, "-b:a:1", bitrate]
+        lang_index = 1
+    elif keep_original_audio and not has_audio:
+        # no original audio, just map new audio
+        args += ["-map", "0:v", "-map", "1:a"]
+        args += ["-c:v", "copy", "-c:a", audio_codec, "-b:a", bitrate]
+        lang_index = 0
+    else:
+        # replace original audio (or original absent)
+        args += ["-map", "0:v", "-map", "1:a"]
+        args += ["-c:v", "copy", "-c:a", audio_codec, "-b:a", bitrate]
+        lang_index = 0
+
+    # set language metadata for the added audio stream
+    args += [f"-metadata:s:a:{lang_index}", f"language={audio_lang_tag}"]
+
+    args += [str(out_path)]
+
+    print("[ffmpeg] running:", " ".join(shlex_quote_arg(x) for x in args))
+    proc = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed (code {proc.returncode}):\n{proc.stderr}")
+
+
+def shlex_quote_arg(x: str) -> str:
+    # helper to present command safely in prints
+    if " " in x or '"' in x:
+        return f'"{x.replace("\"","\\\"")}"'
+    return x
+
+'@
+
+Out-File -FilePath .\modules\auto_srt_all_tts_wrapper.py -Encoding UTF8 -Force

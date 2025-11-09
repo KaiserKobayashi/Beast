@@ -1,0 +1,212 @@
+# write the new wrapper (overwrites/creates)
+@'
+
+# -*- coding: utf-8 -*-
+"""
+auto_srt_all_tts_wrapper.py (project root)
+
+CLI wrapper that wires into modules/auto_srt_all_tts_wrapper.py (improved module).
+This wrapper:
+- Optionally runs auto_srt_all.py and streams its output
+- Calls assemble_audio_from_srt(...) from the improved module
+- Calls mux_audio_into_video(...) and cleans up temporary WAV files if requested
+- Prints progress messages suitable for CLI and for GUI capture
+"""
+from __future__ import annotations
+import argparse
+import subprocess
+import shlex
+import time
+import sys
+import os
+from pathlib import Path
+from typing import List
+
+# Import the improved module (must exist at modules/auto_srt_all_tts_wrapper.py)
+from modules.auto_srt_all_tts_wrapper import (
+    assemble_audio_from_srt,
+    mux_audio_into_video,
+    find_ffmpeg,
+)
+
+# -------------------------
+# Helpers
+# -------------------------
+def parse_args():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--video", required=True, help="Path to input video")
+    ap.add_argument("--out", help="Output video path (if omitted, auto-named next to video)")
+    ap.add_argument("--do-auto", action="store_true", help="Run auto_srt_all.py first to create SRT(s)")
+    ap.add_argument("--auto-script", help="Path to auto_srt_all.py (if omitted, looks next to wrapper)")
+    ap.add_argument("--auto-args", default="", help="Additional args forwarded to auto_srt_all.py (e.g. --targets 'english,japanese')")
+    ap.add_argument("--srt", help="Path to specific SRT to use for TTS (if omitted, will look for <video>.<lang>.srt or .auto.srt)")
+    ap.add_argument("--tts-lang", default="ja", help="Language token for the SRT (used for metadata; not for engine choice)")
+    ap.add_argument("--engine", default="voicevox", choices=("voicevox", "gtts"), help="TTS engine")
+    ap.add_argument("--voice", default="1", help="Voice/ speaker id (VoiceVox) or language tag (gTTS)")
+    ap.add_argument("--replace-audio", action="store_true", help="Replace original audio with generated TTS (default: keep original + add new track)")
+    ap.add_argument("--voicevox-host", default="http://127.0.0.1:50021", help="VoiceVox engine host")
+    ap.add_argument("--sample-rate", type=int, default=24000, help="Sample rate for generated audio")
+    ap.add_argument("--max-workers", type=int, default=2, help="Parallel synthesis workers")
+    ap.add_argument("--cleanup-temp", action="store_true", help="Remove temporary WAV after mux")
+    return ap.parse_args()
+
+
+def run_subprocess_stream(cmd: List[str]):
+    """Run a subprocess and yield stdout/stderr lines in real time (combined)."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assert proc.stdout is not None
+    try:
+        for line in proc.stdout:
+            yield line.rstrip("\n")
+    finally:
+        proc.wait()
+        if proc.returncode != 0:
+            raise subprocess.CalledProcessError(proc.returncode, cmd)
+
+
+def run_auto_srt(auto_script: Path, video: Path, outdir: Path, extra_args: str = "") -> List[Path]:
+    """
+    Runs auto_srt_all.py as a subprocess and streams its output.
+    Returns list[Path] of created srts (parsed from CREATED_SRTS=...).
+    """
+    cmd = ["py", str(auto_script), "--video", str(video), "--outdir", str(outdir)]
+    if extra_args:
+        # filter stray placeholders like "..."
+        extras = [tok for tok in shlex.split(extra_args) if tok.strip() and tok.strip() != "..."]
+        cmd += extras
+    print(f"[auto] Running: {' '.join(shlex.quote(x) for x in cmd)}")
+    created = []
+    buf = []
+    try:
+        for line in run_subprocess_stream(cmd):
+            print("[auto]", line)
+            buf.append(line)
+            if line.strip().startswith("CREATED_SRTS="):
+                _, tail = line.split("=", 1)
+                for p in tail.split("|"):
+                    p = p.strip()
+                    if p:
+                        created.append(Path(p))
+    except subprocess.CalledProcessError as e:
+        print("[auto] auto_srt_all.py failed:", e, file=sys.stderr)
+        print("\n".join(buf), file=sys.stderr)
+        raise
+    return created
+
+
+def find_srt_for_video(video: Path, srt_arg: str | None, outdir: Path, prefer_lang: str | None = None) -> Path:
+    stem = video.stem
+    if srt_arg:
+        p = Path(srt_arg)
+        if p.exists():
+            return p
+        raise FileNotFoundError(srt_arg)
+    candidates = list(outdir.glob(f"{stem}*.srt"))
+    if prefer_lang:
+        for c in candidates:
+            if f".{prefer_lang}." in c.name or c.name.endswith(f".{prefer_lang}.srt"):
+                return c
+    for c in candidates:
+        if c.name.endswith(".auto.srt"):
+            return c
+    if candidates:
+        return candidates[0]
+    raise FileNotFoundError("No SRT found for video in " + str(outdir))
+
+
+# -------------------------
+# Main
+# -------------------------
+def main():
+    args = parse_args()
+    video = Path(args.video).expanduser().resolve()
+    if not video.exists():
+        print("ERROR: video not found:", video, file=sys.stderr)
+        raise SystemExit(2)
+
+    out_path = Path(args.out).expanduser().resolve() if args.out else Path(video.parent) / f"{video.stem} (dubbed).mp4"
+    outdir = out_path.parent
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # Locate auto_srt_all.py
+    auto_script = Path(args.auto_script) if args.auto_script else Path(__file__).parent / "auto_srt_all.py"
+    if not auto_script.exists():
+        # try parent
+        maybe = Path(__file__).parent.parent / "auto_srt_all.py"
+        if maybe.exists():
+            auto_script = maybe
+
+    created_srts = []
+    if args.do_auto:
+        try:
+            created_srts = run_auto_srt(auto_script, video, outdir, extra_args=args.auto_args)
+            print("[auto] created srts:", created_srts)
+        except Exception as e:
+            print("ERROR: failed to run auto_srt_all.py:", e, file=sys.stderr)
+            raise SystemExit(3)
+
+    # find srt to use
+    try:
+        srt_path = find_srt_for_video(video, args.srt, outdir, prefer_lang=args.tts_lang)
+    except Exception as e:
+        print("ERROR: Could not find SRT:", e, file=sys.stderr)
+        raise SystemExit(4)
+
+    print("[tts] Using SRT:", srt_path)
+
+    # assemble WAV from SRT
+    engine_opts = {}
+    if args.engine == "voicevox":
+        engine_opts["host"] = args.voicevox_host
+        engine_opts["speaker"] = int(args.voice)
+    else:
+        engine_opts["lang"] = str(args.voice)
+
+    print("[tts] Synthesizing audio (this can take a while)...")
+    wav_out = None
+    try:
+        wav_out = assemble_audio_from_srt(
+            srt_path,
+            engine=args.engine,
+            engine_opts=engine_opts,
+            sample_rate=args.sample_rate,
+            channels=1,
+            normalize=True,
+            max_workers=args.max_workers,
+        )
+        print("[tts] WAV created:", wav_out)
+    except Exception as e:
+        print("ERROR: TTS synthesis failed:", e, file=sys.stderr)
+        raise SystemExit(5)
+
+    # mux into video
+    ff = find_ffmpeg()
+    if not ff:
+        print("ERROR: ffmpeg not found in PATH", file=sys.stderr)
+        raise SystemExit(6)
+
+    try:
+        print("[mux] Muxing audio into video...")
+        mux_audio_into_video(video, wav_out, out_path, keep_original_audio=(not args.replace_audio), audio_lang_tag=args.tts_lang)
+        print("[mux] Done ->", out_path)
+    except Exception as e:
+        print("ERROR: ffmpeg mux failed:", e, file=sys.stderr)
+        raise SystemExit(7)
+    finally:
+        if wav_out and wav_out.exists() and args.cleanup_temp:
+            try:
+                wav_out.unlink()
+                print("[cleanup] Removed temp WAV:", wav_out)
+            except Exception as e:
+                print("[cleanup] Failed to remove temp WAV:", e)
+
+    print("All finished.")
+    print("OUTPUT_VIDEO=", out_path)
+
+
+if __name__ == "__main__":
+    main()
+
+'@ 
+
+Out-File -FilePath .\auto_srt_all_tts_wrapper.py -Encoding UTF8 -Force

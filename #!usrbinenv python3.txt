@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""
+produce_localized_video.py
+
+End-to-end driver for the localized pipeline:
+- download video (yt-dlp)
+- extract audio (ffmpeg)
+- transcribe + translate (transcribe_translate.transcribe_and_translate)
+- optionally synthesize TTS per-segment via synth_voicevox
+- assemble localized video with translated audio and burned-in subtitles (ffmpeg)
+
+Usage examples:
+  python produce_localized_video.py --url "https://youtu.be/VIDEO_ID" --target ja
+  python produce_localized_video.py --url "https://youtu.be/VIDEO_ID" --target ja --use-openai --use-voicevox --per-segment-tts --speaker 1
+
+Notes:
+- Requires ffmpeg and yt-dlp on PATH.
+- Requires the modules in this repo (transcribe_translate.py, synth_voicevox.py).
+- Whisper model downloads are large; use --model tiny for quick tests.
+"""
+import argparse
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import List
+
+# local imports (these should be present in the repo)
+try:
+    import transcribe_translate
+except Exception:
+    transcribe_translate = None
+
+try:
+    import synth_voicevox
+except Exception:
+    synth_voicevox = None
+
+LOG_PREFIX = "[produce_localized_video]"
+
+
+def run(cmd: List[str], cwd: Path | None = None, check: bool = True):
+    cmd_display = " ".join(shlex.quote(p) for p in cmd)
+    print(f"{LOG_PREFIX} running: {cmd_display}")
+    proc = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    print(proc.stdout)
+    if check and proc.returncode != 0:
+        raise RuntimeError(f"command failed: {cmd_display} (rc={proc.returncode})")
+    return proc
+
+
+def download_video(url: str, out_dir: Path) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # use yt-dlp to download best video+audio to mp4/webm into out_dir
+    out_template = str(out_dir / "%(title)s [%(id)s].%(ext)s")
+    cmd = ["yt-dlp", "-f", "bestvideo+bestaudio/best", "-o", out_template, url]
+    run(cmd)
+    # find the most recently created media file
+    candidates = list(out_dir.glob("*"))
+    if not candidates:
+        raise FileNotFoundError("yt-dlp did not produce a file in output dir")
+    # pick the most recently modified video-like file
+    candidates = [p for p in candidates if p.suffix.lower() in (".mp4", ".mkv", ".webm", ".mov", ".avi")]
+    if not candidates:
+        # fallback to any file
+        candidates = list(out_dir.glob("*"))
+    video_file = max(candidates, key=lambda p: p.stat().st_mtime)
+    print(f"{LOG_PREFIX} downloaded -> {video_file}")
+    return video_file
+
+
+def extract_audio(video_path: Path, out_audio: Path, ffmpeg_path: str = "ffmpeg"):
+    out_audio.parent.mkdir(parents=True, exist_ok=True)
+    # convert to 16k mono WAV (Whisper friendly)
+    cmd = [ffmpeg_path, "-y", "-i", str(video_path), "-ac", "1", "-ar", "16000", "-vn", "-acodec", "pcm_s16le", str(out_audio)]
+    run(cmd)
+    return out_audio
+
+
+def synthesize_segments_tts(segments: List[dict], target_lang: str, out_wavs_dir: Path, speaker: int):
+    """
+    Use synth_voicevox to synthesize each translated segment text into a wav file.
+    synth_voicevox must provide synthesize_text_to_wav(text, speaker, out_path)
+    Returns list of wav paths in order.
+    """
+    if synth_voicevox is None:
+        raise RuntimeError("synth_voicevox module not found; cannot synthesize TTS")
+    out_wavs_dir.mkdir(parents=True, exist_ok=True)
+    wavs = []
+    for i, seg in enumerate(segments):
+        text = seg.get("translated_text") or seg.get("text") or ""
+        out_wav = out_wavs_dir / f"seg_{i:04d}.wav"
+        print(f"{LOG_PREFIX} synthesizing segment {i} -> {out_wav}")
+        # synth_voicevox should implement synthesize_text_to_wav(text, speaker, out_path)
+        if hasattr(synth_voicevox, "synthesize_text_to_wav"):
+            synth_voicevox.synthesize_text_to_wav(text, speaker, str(out_wav))
+        elif hasattr(synth_voicevox, "synthesize_segment"):
+            synth_voicevox.synthesize_segment(text, speaker, str(out_wav))
+        else:
+            raise RuntimeError("synth_voicevox module does not expose a known synth function")
+        wavs.append(out_wav)
+    return wavs
+
+
+def concat_wavs(wav_list: List[Path], out_path: Path, ffmpeg_path: str = "ffmpeg"):
+    # create a list file for ffmpeg concat
+    list_file = out_path.with_suffix(".txt")
+    with open(list_file, "w", encoding="utf-8") as fh:
+        for w in wav_list:
+            fh.write(f"file '{w.as_posix()}'\n")
+    cmd = [ffmpeg_path, "-y", "-f", "concat", "-safe", "0", "-i", str(list_file), "-c", "copy", str(out_path)]
+    run(cmd)
+    list_file.unlink(missing_ok=True)
+    return out_path
+
+
+def assemble_video_with_audio(video_path: Path, audio_path: Path, subtitles_path: Path | None, out_path: Path, ffmpeg_path: str = "ffmpeg"):
+    # replace audio stream in the original video with provided audio, then optionally burn subtitles
+    tmp_out = out_path.with_suffix(".tmp.mp4")
+    # copy video codec and use provided audio
+    cmd = [ffmpeg_path, "-y", "-i", str(video_path), "-i", str(audio_path), "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_out)]
+    run(cmd)
+    if subtitles_path and subtitles_path.exists():
+        # burn subtitles (requires ffmpeg compiled with libass/subtitles)
+        cmd2 = [ffmpeg_path, "-y", "-i", str(tmp_out), "-vf", f"subtitles={str(subtitles_path)}:force_style='FontName=Arial,FontSize=24'", "-c:a", "copy", str(out_path)]
+        run(cmd2)
+        tmp_out.unlink(missing_ok=True)
+    else:
+        tmp_out.replace(out_path)
+    print(f"{LOG_PREFIX} localized video produced: {out_path}")
+    return out_path
+
+
+def main():
+    p = argparse.ArgumentParser(description="Produce localized video (download/transcribe/translate/tts/assemble)")
+    p.add_argument("--url", help="YouTube or video URL to download")
+    p.add_argument("--video-file", help="Path to a local video file (skip download)")
+    p.add_argument("--target", required=True, help="Target language code (e.g. ja)")
+    p.add_argument("--output-dir", default="localized_output", help="Output directory")
+    p.add_argument("--use-openai", action="store_true", help="Use OpenAI for translation")
+    p.add_argument("--use-voicevox", action="store_true", help="Use VoiceVox for TTS")
+    p.add_argument("--per-segment-tts", action="store_true", help="Synthesize per-segment TTS and replace audio")
+    p.add_argument("--speaker", type=int, default=1, help="VoiceVox speaker id")
+    p.add_argument("--presets", default="presets_speaker_presets.json", help="Speaker presets JSON")
+    p.add_argument("--model", default="tiny", help="Whisper model name (tiny, base, small, etc.)")
+    p.add_argument("--keep", action="store_true", help="Keep intermediate files")
+    p.add_argument("--ffmpeg", default="ffmpeg", help="Path to ffmpeg executable")
+    args = p.parse_args()
+
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # 1) obtain video
+        if args.video_file:
+            video = Path(args.video_file)
+            if not video.exists():
+                raise FileNotFoundError(f"video file not found: {video}")
+        elif args.url:
+            video = download_video(args.url, out_dir)
+        else:
+            raise ValueError("either --url or --video-file must be provided")
+
+        # 2) extract audio
+        audio_wav = out_dir / (video.stem + ".wav")
+        extract_audio(video, audio_wav, ffmpeg_path=args.ffmpeg)
+
+        # 3) transcribe and translate
+        original_srt = out_dir / (video.stem + ".orig.srt")
+        translated_srt = out_dir / (video.stem + f".{args.target}.srt")
+        segments_json = out_dir / (video.stem + f".{args.target}.segments.json")
+        segments = []
+        if transcribe_translate is None:
+            raise RuntimeError("transcribe_translate module missing from repo")
+        segments = transcribe_translate.transcribe_and_translate(
+            str(audio_wav),
+            str(original_srt),
+            str(translated_srt),
+            str(segments_json),
+            target_lang=args.target,
+            use_openai=args.use_openai,
+            model=args.model,
+        )
+
+        # 4) optionally synthesize per-segment TTS and replace audio
+        final_audio = audio_wav
+        if args.per_segment_tts:
+            if not args.use_voicevox:
+                raise RuntimeError("--per-segment-tts requires --use-voicevox")
+            wavs_dir = out_dir / "tts_segments"
+            wav_list = synthesize_segments_tts(segments, args.target, wavs_dir, args.speaker)
+            concatenated = out_dir / (video.stem + f".{args.target}.tts.wav")
+            concat_wavs(wav_list, concatenated, ffmpeg_path=args.ffmpeg)
+            final_audio = concatenated
+
+        # 5) assemble localized video with translated audio and burned-in subtitles
+        final_video = out_dir / (video.stem + f".localized.{args.target}.mp4")
+        assemble_video_with_audio(video, final_audio, translated_srt, final_video, ffmpeg_path=args.ffmpeg)
+
+        print(f"{LOG_PREFIX} done. Output: {final_video}")
+
+    except Exception as e:
+        print(f"{LOG_PREFIX} ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        if not args.keep:
+            # clean up large whisper cache or temporary files if desired (no-op here)
+            pass
+
+
+if __name__ == "__main__":
+    main()
